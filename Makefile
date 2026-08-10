@@ -1,3 +1,9 @@
+export GOPATH := C:/Users/Administrator/go
+export GOMODCACHE := C:/Users/Administrator/go/pkg/mod
+export GOCACHE := C:/Users/Administrator/AppData/Local/go-build
+export LocalAppData := C:/Users/Administrator/AppData/Local
+export LC_ALL := C.UTF-8
+
 # Try to get the commit hash from 1) git 2) the VERSION file 3) fallback.
 LAST_COMMIT := $(or $(shell git rev-parse --short HEAD 2> /dev/null),$(shell head -n 1 VERSION | grep -oP -m 1 "^[a-z0-9]+$$"), "")
 
