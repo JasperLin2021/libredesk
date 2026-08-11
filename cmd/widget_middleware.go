@@ -31,6 +31,14 @@ const (
 // checks IP/domain restrictions, and sets inbox + config in context.
 func validateWidgetInbox(next func(*fastglue.Request) error) func(*fastglue.Request) error {
 	return func(r *fastglue.Request) error {
+		// Handle CORS preflight requests before any validation.
+		if string(r.RequestCtx.Method()) == "OPTIONS" {
+			r.RequestCtx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+			r.RequestCtx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			r.RequestCtx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Libredesk-Inbox-ID, X-Libredesk-Visitor-Token, X-Libredesk-Clear-Visitor")
+			return r.SendEnvelope(true)
+		}
+
 		app := r.Context.(*App)
 
 		inboxUUID := string(r.RequestCtx.Request.Header.Peek(hdrWidgetInboxID))
@@ -189,4 +197,13 @@ func getWidgetConfig(r *fastglue.Request) (livechat.Config, error) {
 		return livechat.Config{}, fmt.Errorf("invalid config type in context")
 	}
 	return config, nil
+}
+
+// handleCORS responds to CORS preflight OPTIONS requests for widget API routes.
+func handleCORS(r *fastglue.Request) error {
+	r.RequestCtx.Response.Header.Set("Access-Control-Allow-Origin", "*")
+	r.RequestCtx.Response.Header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	r.RequestCtx.Response.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Libredesk-Inbox-ID, X-Libredesk-Visitor-Token, X-Libredesk-Clear-Visitor")
+	r.RequestCtx.SetStatusCode(fasthttp.StatusNoContent)
+	return nil
 }

@@ -58,7 +58,7 @@ export function useWidget() {
 
     window.LibredeskSettings = { baseURL: config.baseURL, inboxID }
 
-    const scriptURL = `${config.baseURL}/widget.js`
+    const scriptURL = `${config.baseURL}/widget.js?v=2`
 
     loadScript(scriptURL)
       .then(() => {
@@ -83,40 +83,52 @@ export function useWidget() {
       })
   }
 
-  // --- Token Verification ---
-  // Calls POST /api/v1/widget/chat/auth/exchange directly.
-  // On success, also calls widget.setUser(jwt) so the iframe picks up the session.
-  async function verifyToken(jwt) {
+  // --- Bixiao Auth Verification ---
+  // Calls POST /api/v1/widget/chat/auth/bixiao with token, device, versionSeq, and inbox.
+  // On success, calls widget.setUser(session_token) so the iframe picks up the session.
+  async function verifyBixiaoAuth({ token, device, versionSeq, inbox }) {
     checking.value = true
     verifyError.value = null
 
     try {
-      const url = `${config.baseURL}/api/v1/widget/chat/auth/exchange`
+      const url = `${config.baseURL}/api/v1/widget/chat/auth/bixiao`
       const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Libredesk-Inbox-ID': config.inboxID,
+          'X-Libredesk-Inbox-ID': inbox || config.inboxID,
         },
-        body: JSON.stringify({ jwt }),
+        body: JSON.stringify({
+          token,
+          device,
+          version_seq: versionSeq,
+        }),
       })
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data.message || '非法用户，请检查 Token')
+        throw new Error(data.message || '非法用户')
       }
 
-      const data = await response.json()
-      userInfo.value = data.user || null
+      const responseData = await response.json()
+      const sessionToken = responseData.data?.session_token
+      const user = responseData.data?.user || null
+      userInfo.value = user
 
-      // Feed the verified JWT into the widget so its iframe can do its own exchange
+      if (!sessionToken) {
+        throw new Error('Missing session token in response')
+      }
+
+      // Feed the session token into the widget so its iframe can authenticate.
+      // Pass isSessionToken=true because we already have a valid session token
+      // from bixiaocrm auth, not a JWT that needs exchange.
       const api = window.Libredesk
       if (api && typeof api.setUser === 'function') {
-        api.setUser(jwt)
+        api.setUser(sessionToken, true)
       }
 
       isAuthenticated.value = true
-      return data
+      return responseData.data
     } catch (err) {
       verifyError.value = err.message
       throw err
@@ -170,7 +182,7 @@ export function useWidget() {
     initWidget,
     show,
     hide,
-    verifyToken,
+    verifyBixiaoAuth,
     destroy,
   }
 }

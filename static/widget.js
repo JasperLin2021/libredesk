@@ -580,8 +580,12 @@
             if (this._pageTrackInterval) clearInterval(this._pageTrackInterval);
         }
 
-        setUser (jwt) {
-            this.postToIframe({ type: 'SET_JWT_TOKEN', jwt: jwt });
+        setUser (jwt, isSessionToken) {
+            if (isSessionToken) {
+                this.postToIframe({ type: 'SESSION_DATA', sessionToken: jwt });
+            } else {
+                this.postToIframe({ type: 'SET_JWT_TOKEN', jwt: jwt });
+            }
         }
 
         logout () {

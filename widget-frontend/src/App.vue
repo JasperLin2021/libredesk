@@ -15,7 +15,7 @@ const {
   initWidget,
   show,
   hide,
-  verifyToken,
+  verifyBixiaoAuth,
   destroy,
 } = useWidget()
 
@@ -31,10 +31,13 @@ const inputBaseURL = ref('')
 const inputInboxID = ref('')
 const configError = ref('')
 
-// ----- JWT modal -----
-const showJWTModal = ref(false)
-const jwtInput = ref('')
-const jwtError = ref('')
+// ----- Bixiao auth modal -----
+const showBixiaoModal = ref(false)
+const bixiaoToken = ref('')
+const bixiaoDevice = ref('')
+const bixiaoVersionSeq = ref('')
+const bixiaoInbox = ref('')
+const bixiaoError = ref('')
 
 // ----- Helpers -----
 function loadStoredConfig() {
@@ -66,24 +69,34 @@ function handleServiceClick() {
   if (isAuthenticated.value) {
     isVisible.value ? hide() : show()
   } else {
-    jwtInput.value = ''
-    jwtError.value = ''
-    showJWTModal.value = true
+    bixiaoToken.value = 'ut:9e116f4a-8236-450d-a776-a17500dbc3e9'
+    bixiaoDevice.value = 'Android'
+    bixiaoVersionSeq.value = '202607015'
+    bixiaoInbox.value = config.inboxID
+    bixiaoError.value = ''
+    showBixiaoModal.value = true
   }
 }
 
-// ----- JWT Verification -----
-async function handleVerify() {
-  const jwt = jwtInput.value.trim()
-  if (!jwt) { jwtError.value = '请输入用户 Token'; return }
+// ----- Bixiao Verification -----
+async function handleBixiaoVerify() {
+  const token = bixiaoToken.value.trim()
+  const device = bixiaoDevice.value.trim()
+  const versionSeq = bixiaoVersionSeq.value.trim()
+  const inbox = bixiaoInbox.value.trim()
+
+  if (!token) { bixiaoError.value = '请输入 Token'; return }
+  if (!device) { bixiaoError.value = '请输入 Device'; return }
+  if (!versionSeq) { bixiaoError.value = '请输入 VersionSeq'; return }
+  if (!inbox) { bixiaoError.value = '请输入 Inbox ID'; return }
 
   try {
-    await verifyToken(jwt)
-    showJWTModal.value = false
+    await verifyBixiaoAuth({ token, device, versionSeq, inbox })
+    showBixiaoModal.value = false
     // Small delay to let the widget process setUser before showing
     setTimeout(() => show(), 400)
   } catch (err) {
-    jwtError.value = err.message || '非法用户'
+    bixiaoError.value = err.message || '非法用户'
   }
 }
 
@@ -208,18 +221,18 @@ onMounted(() => {
       </div>
     </template>
 
-    <!-- ======== JWT Verification Modal ======== -->
+    <!-- ======== Bixiao Auth Modal ======== -->
     <Teleport to="body">
       <Transition name="modal">
-        <div v-if="showJWTModal"
+        <div v-if="showBixiaoModal"
              class="fixed inset-0 z-50 flex items-center justify-center px-4"
-             @click.self="showJWTModal = false">
+             @click.self="showBixiaoModal = false">
           <!-- Backdrop -->
           <div class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
 
           <!-- Modal -->
           <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl p-6">
-            <button @click="showJWTModal = false"
+            <button @click="showBixiaoModal = false"
                     class="absolute top-4 right-4 w-8 h-8 rounded-lg flex items-center justify-center
                            text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
               <X class="w-4 h-4" />
@@ -230,22 +243,60 @@ onMounted(() => {
                 <MessageCircle class="w-6 h-6 text-indigo-600" />
               </div>
               <h2 class="text-lg font-bold text-slate-900">身份验证</h2>
-              <p class="mt-1 text-sm text-slate-500">请输入用户 Token 以开始咨询</p>
+              <p class="mt-1 text-sm text-slate-500">请输入认证信息以开始咨询</p>
             </div>
 
-            <form @submit.prevent="handleVerify" class="space-y-4">
-              <textarea
-                v-model="jwtInput"
-                rows="4"
-                placeholder="粘贴您的 JWT Token..."
-                class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 text-sm
-                       placeholder:text-slate-400 focus:outline-none focus:ring-2
-                       focus:ring-indigo-500/30 focus:border-indigo-500 transition
-                       font-mono resize-none"
-              ></textarea>
+            <form @submit.prevent="handleBixiaoVerify" class="space-y-3">
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Token</label>
+                <input
+                  v-model="bixiaoToken"
+                  type="text"
+                  placeholder="请输入 Token"
+                  class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm
+                         placeholder:text-slate-400 focus:outline-none focus:ring-2
+                         focus:ring-indigo-500/30 focus:border-indigo-500 transition"
+                />
+              </div>
 
-              <p v-if="jwtError" class="text-sm text-red-500 flex items-center gap-1">
-                <X class="w-4 h-4 flex-shrink-0" /> {{ jwtError }}
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Device</label>
+                <input
+                  v-model="bixiaoDevice"
+                  type="text"
+                  placeholder="请输入 Device"
+                  class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm
+                         placeholder:text-slate-400 focus:outline-none focus:ring-2
+                         focus:ring-indigo-500/30 focus:border-indigo-500 transition"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">VersionSeq</label>
+                <input
+                  v-model="bixiaoVersionSeq"
+                  type="text"
+                  placeholder="请输入 VersionSeq"
+                  class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-white text-sm
+                         placeholder:text-slate-400 focus:outline-none focus:ring-2
+                         focus:ring-indigo-500/30 focus:border-indigo-500 transition"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1">Inbox ID</label>
+                <input
+                  v-model="bixiaoInbox"
+                  type="text"
+                  placeholder="Inbox ID（预填）"
+                  class="w-full px-4 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-sm
+                         placeholder:text-slate-400 focus:outline-none focus:ring-2
+                         focus:ring-indigo-500/30 focus:border-indigo-500 transition font-mono"
+                />
+              </div>
+
+              <p v-if="bixiaoError" class="text-sm text-red-500 flex items-center gap-1">
+                <X class="w-4 h-4 flex-shrink-0" /> {{ bixiaoError }}
               </p>
 
               <button type="submit"
