@@ -194,9 +194,6 @@ func handleChatInit(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), nil, envelope.InputError)
 	}
 
-	if req.Message == "" {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.required", "name", "{globals.terms.message}"), nil, envelope.InputError)
-	}
 	if len(req.Message) > maxChatMessageLength {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.maxLength", "max", strconv.Itoa(maxChatMessageLength)), nil, envelope.InputError)
 	}
@@ -238,7 +235,7 @@ func handleChatInit(r *fastglue.Request) error {
 
 	app.lo.Info("creating new live chat conversation for user", "user_id", contactID, "inbox_id", inbox.ID, "is_visitor", isVisitor)
 
-	// Create conversation and insert message.
+	// Create conversation.
 	meta := map[string]any{
 		"ip":         clientIP,
 		"user_agent": userAgent,
@@ -263,29 +260,33 @@ func handleChatInit(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 	}
 
-	message := cmodels.Message{
-		ConversationUUID: conversationUUID,
-		SenderID:         contactID,
-		Type:             cmodels.MessageIncoming,
-		SenderType:       cmodels.SenderTypeContact,
-		Status:           cmodels.MessageStatusReceived,
-		Content:          req.Message,
-		ContentType:      cmodels.ContentTypeText,
-		Private:          false,
-	}
-	if err := app.conversation.InsertMessage(&message); err != nil {
-		// Clean up conversation if message insert fails.
-		if err := app.conversation.DeleteConversation(conversationUUID); err != nil {
-			app.lo.Error("error deleting conversation after message insert failure", "conversation_uuid", conversationUUID, "error", err)
+	// If the user sent an initial message, insert it and process hooks.
+	// Otherwise, just trigger new-conversation hooks (welcome reply, webhooks, automation).
+	if strings.TrimSpace(req.Message) != "" {
+		message := cmodels.Message{
+			ConversationUUID: conversationUUID,
+			SenderID:         contactID,
+			Type:             cmodels.MessageIncoming,
+			SenderType:       cmodels.SenderTypeContact,
+			Status:           cmodels.MessageStatusReceived,
+			Content:          req.Message,
+			ContentType:      cmodels.ContentTypeText,
+			Private:          false,
+		}
+		if err := app.conversation.InsertMessage(&message); err != nil {
+			// Clean up conversation if message insert fails.
+			if err := app.conversation.DeleteConversation(conversationUUID); err != nil {
+				app.lo.Error("error deleting conversation after message insert failure", "conversation_uuid", conversationUUID, "error", err)
+				return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
+			}
+			app.lo.Error("error inserting initial message", "conversation_uuid", conversationUUID, "error", err)
 			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 		}
-		app.lo.Error("error inserting initial message", "conversation_uuid", conversationUUID, "error", err)
-		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 	}
 
-	// Process post-message hooks for the new conversation and initial message.
+	// Process post-message hooks for the new conversation (welcome reply, webhooks, automation).
 	if err := app.conversation.ProcessIncomingMessageHooks(conversationUUID, true); err != nil {
-		app.lo.Error("error processing incoming message hooks for initial message", "conversation_uuid", conversationUUID, "error", err)
+		app.lo.Error("error processing incoming message hooks for new conversation", "conversation_uuid", conversationUUID, "error", err)
 	}
 
 	conversation, err := app.conversation.GetConversation(0, conversationUUID, "")

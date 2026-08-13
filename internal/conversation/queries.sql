@@ -420,6 +420,7 @@ LEFT JOIN users lis ON c.last_interaction_sender_id = lis.id
 WHERE c.contact_id = $1 AND c.inbox_id = $2
   AND inb.deleted_at IS NULL
   AND con.deleted_at IS NULL
+  AND cs.name = 'Open'
 ORDER BY c.created_at DESC
 LIMIT 200;
 
@@ -1020,3 +1021,16 @@ FROM conversations
 WHERE contact_id = $1
 ORDER BY last_message_at DESC NULLS LAST
 LIMIT 200;
+
+-- name: update-conversation-meta
+UPDATE conversations
+SET meta = COALESCE(meta, '{}'::jsonb) || $2::jsonb,
+    updated_at = NOW()
+WHERE uuid = $1;
+
+-- name: count-open-unassigned-conversations
+SELECT COUNT(*) AS count
+FROM conversations
+WHERE status_id = (SELECT id FROM conversation_statuses WHERE name = 'Open')
+  AND assigned_user_id IS NULL
+  AND assigned_team_id IS NULL;

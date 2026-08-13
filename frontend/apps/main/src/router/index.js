@@ -450,6 +450,12 @@ const routes = [
             ]
           },
           {
+            path: 'quick-reply',
+            name: 'quick-reply',
+            component: () => import('@main/views/admin/quickreply/QuickReplyConfig.vue'),
+            meta: { titleKey: 'admin.quickReply.title' }
+          },
+          {
             path: 'templates',
             component: () => import('@main/views/admin/templates/Templates.vue'),
             meta: { titleKey: 'globals.terms.template', titleCount: 2 },

@@ -84,6 +84,12 @@ export const adminNavItems = [
         permission: 'inboxes:manage',
         isTitleKeyPlural: true,
         icon: 'Inbox'
+      },
+      {
+        titleKey: 'admin.quickReply.title',
+        href: '/admin/quick-reply',
+        permission: 'inboxes:manage',
+        icon: 'MessageSquareText'
       }
     ]
   },

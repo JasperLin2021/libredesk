@@ -310,6 +310,45 @@ CREATE TABLE automation_rules (
 CREATE INDEX index_automation_rules_on_enabled_and_weight ON automation_rules(enabled, weight);
 CREATE INDEX index_automation_rules_on_type_and_weight ON automation_rules(type, weight);
 
+DROP TABLE IF EXISTS inbox_quick_reply_configs CASCADE;
+CREATE TABLE inbox_quick_reply_configs (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    inbox_id INT REFERENCES inboxes(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
+    welcome_message TEXT NULL,
+    transfer_keyword TEXT NOT NULL DEFAULT '我要转人工',
+    queue_reply TEXT NULL,
+    assigned_reply TEXT NULL,
+    closed_reply TEXT NULL,
+    enabled BOOL DEFAULT FALSE NOT NULL,
+    CONSTRAINT constraint_inbox_quick_reply_configs_on_inbox_id UNIQUE (inbox_id)
+);
+
+DROP TABLE IF EXISTS quick_reply_topics CASCADE;
+CREATE TABLE quick_reply_topics (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    inbox_id INT REFERENCES inboxes(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
+    name TEXT NOT NULL,
+    sort_order INT DEFAULT 0 NOT NULL,
+    CONSTRAINT constraint_quick_reply_topics_on_inbox_id_and_name UNIQUE (inbox_id, name)
+);
+CREATE INDEX index_quick_reply_topics_on_inbox_id ON quick_reply_topics (inbox_id);
+
+DROP TABLE IF EXISTS quick_reply_questions CASCADE;
+CREATE TABLE quick_reply_questions (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    topic_id BIGINT REFERENCES quick_reply_topics(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT NULL,
+    sort_order INT DEFAULT 0 NOT NULL
+);
+CREATE INDEX index_quick_reply_questions_on_topic_id ON quick_reply_questions (topic_id);
+
 DROP TABLE IF EXISTS conversation_drafts CASCADE;
 CREATE TABLE conversation_drafts (
     id BIGSERIAL PRIMARY KEY,

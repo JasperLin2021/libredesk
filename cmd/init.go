@@ -40,6 +40,7 @@ import (
 	notifier "github.com/abhinavxd/libredesk/internal/notification"
 	emailnotifier "github.com/abhinavxd/libredesk/internal/notification/providers/email"
 	"github.com/abhinavxd/libredesk/internal/oidc"
+	"github.com/abhinavxd/libredesk/internal/quickreply"
 	"github.com/abhinavxd/libredesk/internal/ratelimit"
 	"github.com/abhinavxd/libredesk/internal/report"
 	"github.com/abhinavxd/libredesk/internal/role"
@@ -298,6 +299,7 @@ func initConversations(
 	template *tmpl.Manager,
 	webhook *webhook.Manager,
 	dispatcher *notifier.Dispatcher,
+	quickReply *quickreply.Manager,
 ) *conversation.Manager {
 	continuityConfig := &conversation.ContinuityConfig{}
 	if ko.Exists("conversation.continuity_scan_interval") {
@@ -311,11 +313,28 @@ func initConversations(
 		IncomingMessageQueueSize: ko.MustInt("message.incoming_queue_size"),
 		ContinuityConfig:         continuityConfig,
 		SubjectRefFormat:         ko.String("conversation.subject_ref_format"),
+		QuickReply:               quickReply,
 	})
 	if err != nil {
 		log.Fatalf("error initializing conversation manager: %v", err)
 	}
+	if quickReply != nil {
+		quickReply.SetConversationService(c)
+	}
 	return c
+}
+
+// initQuickReply inits the quick reply manager.
+func initQuickReply(db *sqlx.DB, i18n *i18n.I18n) *quickreply.Manager {
+	mgr, err := quickreply.New(quickreply.Opts{
+		DB:   db,
+		Lo:   initLogger("quickreply"),
+		I18n: i18n,
+	})
+	if err != nil {
+		log.Fatalf("error initializing quick reply manager: %v", err)
+	}
+	return mgr
 }
 
 // initTag inits tag manager.

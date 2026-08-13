@@ -13,7 +13,7 @@
     />
 
     <!-- Messages container (when no pre-chat form) -->
-    <ChatMessages v-else ref="chatMessages" :showPreChatForm="showPreChatForm" />
+    <ChatMessages v-else ref="chatMessages" :showPreChatForm="showPreChatForm" @error="handleError" />
 
     <!-- Error display -->
     <WidgetError :errorMessage="errorMessage" />
@@ -23,13 +23,19 @@
 
     <!-- Closed conversation notice -->
     <div v-if="isConversationClosed" class="border-t p-4 text-center text-sm text-muted-foreground">
-      {{ $t('widget.conversationClosed') }}
+      <p class="mb-3">{{ $t('widget.conversationClosed') }}</p>
+      <button
+        @click="startNewConversation"
+        class="px-4 py-2 text-sm font-medium text-primary-500 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+      >
+        {{ $t('widget.startNewConversation') }}
+      </button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useWidgetStore } from '../store/widget.js'
 import { useUserStore } from '../store/user.js'
 import { useChatStore } from '../store/chat.js'
@@ -69,14 +75,17 @@ const showPreChatForm = computed(() => {
   return isAnonymous || isNewConversation
 })
 
-// Check if conversation is closed and replies are not allowed
+// Check if conversation is closed - always block replies on closed conversations
 const isConversationClosed = computed(() => {
   const status = chatStore.currentConversation?.status
-  if (status !== 'Closed') return false
-
-  const settingsKey = userStore.isVisitor ? 'visitors' : 'users'
-  return config.value?.[settingsKey]?.prevent_reply_to_closed_conversation ?? false
+  return status === 'Closed'
 })
+
+// Start a new conversation when current one is closed
+const startNewConversation = () => {
+  chatStore.setCurrentConversation(null)
+  chatStore.clearMessages()
+}
 
 const goBack = () => {
   widgetStore.navigateToMessages()
@@ -91,20 +100,61 @@ const handleError = (message) => {
   }
 }
 
-// Handle pre-chat form submission - init chat with form data and message
-const handlePreChatFormSubmit = async ({ formData, message }) => {
-  // Auto-submit with no message (e.g., all fields excluded) - just skip to chat
-  if (!message) {
-    preChatFormSubmitted.value = true
-    return
+// Auto-init conversation on mount to fetch welcome messages
+onMounted(async () => {
+  // Only auto-init if no current conversation and not already initializing
+  if (!chatStore.currentConversation?.uuid && !isInitializing.value) {
+    await initConversationForWelcome()
   }
+})
 
+// Initialize conversation without message to get welcome reply
+const initConversationForWelcome = async () => {
   isInitializing.value = true
   errorMessage.value = ''
 
   try {
-    const payload = {
-      message: message
+    const payload = {}
+
+    // If user has session token, include it
+    if (userStore.userSessionToken) {
+      // User is already authenticated, just init without message
+    }
+
+    const resp = await api.initChatConversation(payload)
+    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+    conversation.business_hours_id = business_hours_id
+    conversation.working_hours_utc_offset = working_hours_utc_offset
+
+    console.log('[DEBUG] Welcome init - API response messages:', messages)
+
+    if (!userStore.userSessionToken && session_token) {
+      saveSession(session_token, user, userStore, true)
+    }
+
+    chatStore.addConversationToList(conversation)
+    chatStore.setCurrentConversation(conversation)
+    chatStore.replaceMessages(messages)
+
+    preChatFormSubmitted.value = true
+  } catch (error) {
+    console.error('[DEBUG] Welcome init error:', error)
+    errorMessage.value = handleHTTPError(error).message
+  } finally {
+    isInitializing.value = false
+  }
+}
+
+// Handle pre-chat form submission - init chat with form data and optional message
+const handlePreChatFormSubmit = async ({ formData, message }) => {
+  isInitializing.value = true
+  errorMessage.value = ''
+
+  try {
+    const payload = {}
+
+    if (message) {
+      payload.message = message
     }
 
     if (Object.keys(formData).length > 0) {
@@ -116,6 +166,9 @@ const handlePreChatFormSubmit = async ({ formData, message }) => {
     conversation.business_hours_id = business_hours_id
     conversation.working_hours_utc_offset = working_hours_utc_offset
 
+    console.log('[DEBUG] API response messages:', messages)
+    console.log('[DEBUG] Messages count:', messages?.length)
+
     if (!userStore.userSessionToken && session_token) {
       saveSession(session_token, user, userStore, true)
     }
@@ -123,6 +176,8 @@ const handlePreChatFormSubmit = async ({ formData, message }) => {
     chatStore.addConversationToList(conversation)
     chatStore.setCurrentConversation(conversation)
     chatStore.replaceMessages(messages)
+
+    console.log('[DEBUG] After replaceMessages, current messages:', chatStore.getCurrentConversationMessages)
 
     preChatFormSubmitted.value = true
   } catch (error) {

@@ -995,6 +995,15 @@ func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message) (models.Mes
 		m.lo.Error("error processing incoming message hooks", "conversation_uuid", msg.ConversationUUID, "error", err)
 	}
 
+	// Run quick reply (automatic reply) matching for visitor messages.
+	if m.quickReply != nil {
+		if conversation, err := m.GetConversation(0, msg.ConversationUUID, ""); err == nil {
+			if err := m.quickReply.HandleIncomingMessage(conversation, msg.Content); err != nil {
+				m.lo.Error("error processing quick reply match", "conversation_uuid", msg.ConversationUUID, "error", err)
+			}
+		}
+	}
+
 	return msg, nil
 }
 
@@ -1372,6 +1381,13 @@ func (m *Manager) ProcessIncomingMessageHooks(conversationUUID string, isNewConv
 		if err == nil {
 			m.webhookStore.TriggerEvent(wmodels.EventConversationCreated, conversation)
 			m.automation.EvaluateNewConversationRules(conversation)
+
+			// Send the quick reply welcome message (with topic cards) for new conversations.
+			if m.quickReply != nil {
+				if err := m.quickReply.SendWelcomeReply(conversation); err != nil {
+					m.lo.Error("error sending quick reply welcome message", "conversation_uuid", conversationUUID, "error", err)
+				}
+			}
 		}
 		return nil
 	}

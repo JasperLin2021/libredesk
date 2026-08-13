@@ -410,6 +410,40 @@ const updateInbox = (id, data) =>
     }
   })
 const deleteInbox = (id) => http.delete(`/api/v1/inboxes/${id}`)
+const getQuickReplyConfig = (id) => http.get(`/api/v1/inboxes/${id}/quick-reply-config`)
+const updateQuickReplyConfig = (id, data) =>
+  http.put(`/api/v1/inboxes/${id}/quick-reply-config`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const getQuickReplyTopics = (id) => http.get(`/api/v1/inboxes/${id}/quick-reply-topics`)
+const createQuickReplyTopic = (id, data) =>
+  http.post(`/api/v1/inboxes/${id}/quick-reply-topics`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const updateQuickReplyTopic = (id, data) =>
+  http.put(`/api/v1/quick-reply-topics/${id}`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const deleteQuickReplyTopic = (id) => http.delete(`/api/v1/quick-reply-topics/${id}`)
+const createQuickReplyQuestion = (id, data) =>
+  http.post(`/api/v1/quick-reply-topics/${id}/questions`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const updateQuickReplyQuestion = (id, data) =>
+  http.put(`/api/v1/quick-reply-questions/${id}`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const deleteQuickReplyQuestion = (id) => http.delete(`/api/v1/quick-reply-questions/${id}`)
 const saveDraft = (uuid, type, data) =>
   http.post(`/api/v1/conversations/${uuid}/draft`, { ...data, type }, {
     headers: {
@@ -660,6 +694,15 @@ export default {
   updateInbox,
   deleteInbox,
   toggleInbox,
+  getQuickReplyConfig,
+  updateQuickReplyConfig,
+  getQuickReplyTopics,
+  createQuickReplyTopic,
+  updateQuickReplyTopic,
+  deleteQuickReplyTopic,
+  createQuickReplyQuestion,
+  updateQuickReplyQuestion,
+  deleteQuickReplyQuestion,
   createTeam,
   updateTeam,
   getSettings,

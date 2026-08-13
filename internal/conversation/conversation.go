@@ -23,6 +23,7 @@ import (
 	pmodels "github.com/abhinavxd/libredesk/internal/conversation/priority/models"
 	smodels "github.com/abhinavxd/libredesk/internal/conversation/status/models"
 	"github.com/abhinavxd/libredesk/internal/csat"
+	"github.com/abhinavxd/libredesk/internal/quickreply"
 	csatModels "github.com/abhinavxd/libredesk/internal/csat/models"
 	"github.com/abhinavxd/libredesk/internal/dbutil"
 	"github.com/abhinavxd/libredesk/internal/envelope"
@@ -109,6 +110,7 @@ type Manager struct {
 	continuityConfig           ContinuityConfig
 	subjectRefFormat           string
 	aiAgent                    AIAgentEngine
+	quickReply                 *quickreply.Manager
 }
 
 // AIAgentEngine is notified when a conversation assigned to an AI assistant may need a response.
@@ -121,6 +123,60 @@ type AIAgentEngine interface {
 // SetAIAgent wires the AI agent engine after construction to avoid an import cycle.
 func (c *Manager) SetAIAgent(e AIAgentEngine) {
 	c.aiAgent = e
+}
+
+// SendAutoReply sends a message on behalf of the system user. It implements the
+// quickreply.ConversationService interface.
+func (c *Manager) SendAutoReply(inboxID, contactID int, conversationUUID, content string, metaMap map[string]any) (models.Message, error) {
+	systemUser, err := c.userStore.GetSystemUser()
+	if err != nil {
+		c.lo.Error("error fetching system user for auto reply", "error", err)
+		return models.Message{}, err
+	}
+	return c.QueueReply(nil, inboxID, systemUser.ID, contactID, conversationUUID, content, nil, nil, nil, metaMap)
+}
+
+// GetConversationMeta returns the conversation's meta as a map. It implements
+// the quickreply.ConversationService interface.
+func (c *Manager) GetConversationMeta(conversationUUID string) (map[string]any, error) {
+	conversation, err := c.GetConversation(0, conversationUUID, "")
+	if err != nil {
+		return nil, err
+	}
+	meta := map[string]any{}
+	if len(conversation.Meta) > 0 {
+		if err := json.Unmarshal(conversation.Meta, &meta); err != nil {
+			c.lo.Error("error unmarshalling conversation meta", "conversation_uuid", conversationUUID, "error", err)
+		}
+	}
+	return meta, nil
+}
+
+// UpdateConversationMeta merges the given keys into the conversation's meta.
+// It implements the quickreply.ConversationService interface.
+func (c *Manager) UpdateConversationMeta(conversationUUID string, meta map[string]any) error {
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		c.lo.Error("error marshalling conversation meta", "error", err)
+		return envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	if _, err := c.q.UpdateConversationMeta.Exec(conversationUUID, metaJSON); err != nil {
+		c.lo.Error("error updating conversation meta", "conversation_uuid", conversationUUID, "error", err)
+		return envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return nil
+}
+
+// CountOpenUnassignedConversations returns the number of open conversations
+// that are not assigned to any agent or team. It implements the
+// quickreply.ConversationService interface.
+func (c *Manager) CountOpenUnassignedConversations() (int, error) {
+	var count int
+	if err := c.q.CountOpenUnassignedConversations.Get(&count); err != nil {
+		c.lo.Error("error counting open unassigned conversations", "error", err)
+		return 0, envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return count, nil
 }
 
 // WidgetConversationView represents the conversation data for widget clients
@@ -220,6 +276,7 @@ type Opts struct {
 	IncomingMessageQueueSize int
 	ContinuityConfig         *ContinuityConfig
 	SubjectRefFormat         string
+	QuickReply               *quickreply.Manager
 }
 
 // New initializes a new conversation Manager.
@@ -289,6 +346,7 @@ func New(
 		outgoingProcessingMessages: sync.Map{},
 		continuityConfig:           continuityConfig,
 		subjectRefFormat:           subjectRefFormat,
+		quickReply:                 opts.QuickReply,
 	}
 
 	return c, nil
@@ -368,6 +426,10 @@ type queries struct {
 	// WS list-subscribe authz.
 	FilterAuthorizedListUUIDs     *sqlx.Stmt `query:"filter-authorized-list-uuids"`
 	GetConversationUUIDsByContact *sqlx.Stmt `query:"get-conversation-uuids-by-contact"`
+
+	// Quick reply queries.
+	UpdateConversationMeta             *sqlx.Stmt `query:"update-conversation-meta"`
+	CountOpenUnassignedConversations   *sqlx.Stmt `query:"count-open-unassigned-conversations"`
 }
 
 // CreateConversation creates a new conversation. If maxConversations > 0, the insert is
@@ -797,6 +859,12 @@ func (c *Manager) afterUserAssignedHooks(uuid string, assigneeID int, actor umod
 
 	c.automation.EvaluateConversationUpdateRules(conversation, amodels.EventConversationUserAssigned, previousValues, actor)
 
+	if c.quickReply != nil {
+		if err := c.quickReply.HandleUserAssigned(conversation); err != nil {
+			c.lo.Error("error running quick reply user assigned hook", "uuid", uuid, "error", err)
+		}
+	}
+
 	if assigneeID != actor.ID {
 		if err := c.NotifyAssignment([]int{assigneeID}, conversation); err != nil {
 			c.lo.Error("error sending assignment notification", "error", err)
@@ -1049,6 +1117,12 @@ func (c *Manager) UpdateConversationStatus(uuid string, statusID int, status, sn
 
 	if conversation.ID != 0 {
 		c.automation.EvaluateConversationUpdateRules(conversation, amodels.EventConversationStatusChange, amodels.PreviousValues(conversationBeforeChange), actor)
+
+		if c.quickReply != nil && status == models.StatusClosed {
+			if err := c.quickReply.HandleConversationClosed(conversation); err != nil {
+				c.lo.Error("error running quick reply conversation closed hook", "uuid", uuid, "error", err)
+			}
+		}
 	}
 
 	// Broadcast conversation update to widget clients.

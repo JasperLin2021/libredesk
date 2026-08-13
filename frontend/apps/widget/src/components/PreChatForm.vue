@@ -179,11 +179,10 @@
             </FormField>
           </div>
 
-          <!-- Message textarea (always last) -->
+          <!-- Message textarea (optional, always last) -->
           <div class="space-y-2">
             <label class="text-sm font-medium">
               {{ $t('globals.terms.message') }}
-              <span class="text-destructive">*</span>
             </label>
             <Textarea
               v-model="messageText"
@@ -196,7 +195,7 @@
 
       <!-- Submit button - fixed at bottom -->
       <div class="p-4 border-t">
-        <Button @click="submitForm" class="w-full" :disabled="!requiredFieldsFilled || !meta.valid || !messageText.trim() || props.isSubmitting">
+        <Button @click="submitForm" class="w-full" :disabled="!requiredFieldsFilled || !meta.valid || props.isSubmitting">
           <div
             v-if="props.isSubmitting"
             class="w-4 h-4 border-2 border-background border-t-current rounded-full animate-spin mr-2"

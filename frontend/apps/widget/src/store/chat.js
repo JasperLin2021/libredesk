@@ -27,11 +27,16 @@ export const useChatStore = defineStore('chat', () => {
         if (!convId) return []
         return messageCache.getAllPagesMessages(convId)
     })
-    const hasConversations = computed(() => conversations.value?.length > 0)
+    const hasConversations = computed(() => {
+        if (!conversations.value) return false
+        return conversations.value.some(c => c.status?.name === 'Open' || c.status === 'Open')
+    })
     const getConversations = computed(() => {
         // Sort by `last_message.created_at` descending.
         if (conversations.value) {
-            return conversations.value.sort((a, b) => new Date(b.last_message.created_at) - new Date(a.last_message.created_at))
+            // Only show Open conversations
+            const openConversations = conversations.value.filter(c => c.status?.name === 'Open' || c.status === 'Open')
+            return openConversations.sort((a, b) => new Date(b.last_message.created_at) - new Date(a.last_message.created_at))
         }
         return []
     })

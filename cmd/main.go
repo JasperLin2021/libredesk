@@ -41,6 +41,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/inbox"
 	"github.com/abhinavxd/libredesk/internal/media"
 	"github.com/abhinavxd/libredesk/internal/oidc"
+	"github.com/abhinavxd/libredesk/internal/quickreply"
 	"github.com/abhinavxd/libredesk/internal/ratelimit"
 	"github.com/abhinavxd/libredesk/internal/role"
 	"github.com/abhinavxd/libredesk/internal/setting"
@@ -100,6 +101,7 @@ type App struct {
 	businessHours    *businesshours.Manager
 	sla              *sla.Manager
 	csat             *csat.Manager
+	quickReply       *quickreply.Manager
 	view             *view.Manager
 	ai               *ai.Manager
 	aiAgent          *aiagent.Manager
@@ -212,6 +214,7 @@ func main() {
 		constants                   = initConstants()
 		i18n                        = initI18n(fs)
 		csat                        = initCSAT(db, i18n)
+		quickReply                  = initQuickReply(db, i18n)
 		oidc                        = initOIDC(db, settings, i18n)
 		status                      = initStatus(db, i18n)
 		priority                    = initPriority(db, i18n)
@@ -231,7 +234,7 @@ func main() {
 		automation                  = initAutomationEngine(db, i18n)
 		ai                          = initAI(ctx, db, i18n, ssrfControl)
 		sla                         = initSLA(db, team, settings, businessHours, template, user, i18n, notifDispatcher)
-		conversation                = initConversations(i18n, sla, status, priority, wsHub, db, inbox, user, team, media, settings, csat, automation, template, webhook, notifDispatcher)
+		conversation                = initConversations(i18n, sla, status, priority, wsHub, db, inbox, user, team, media, settings, csat, automation, template, webhook, notifDispatcher, quickReply)
 		aiAgent                     = initAIAgent(db, i18n, ai, conversation, media, settings, user, notifier, rdb)
 		autoassigner                = initAutoAssigner(team, user, conversation)
 		rateLimiter                 = initRateLimit(rdb)
@@ -278,6 +281,7 @@ func main() {
 		user:             user,
 		team:             team,
 		csat:             csat,
+		quickReply:       quickReply,
 		status:           status,
 		priority:         priority,
 		tmpl:             template,

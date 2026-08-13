@@ -31,9 +31,36 @@
               : 'items-start'
           ]"
         >
+          <!-- Quick Reply Card (bot) -->
+          <QuickReplyCard
+            v-if="message.meta?.type === 'bot_quick_reply'"
+            :message="message"
+            @error="handleQuickReplyError"
+          />
+
+          <!-- Queue Info Bubble (transfer to human queue position) -->
+          <div
+            v-else-if="message.meta?.type === 'queue_info'"
+            class="flex flex-col items-start max-w-[85%]"
+          >
+            <div
+              class="px-4 py-3 rounded-2xl text-sm leading-5 break-words whitespace-pre-wrap bg-muted text-foreground"
+            >
+              {{ message.content }}
+            </div>
+            <div
+              v-if="typeof message.meta?.count === 'number'"
+              class="mt-2 flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800"
+              role="status"
+            >
+              <Clock class="w-3.5 h-3.5 shrink-0" />
+              <span>{{ $t('widget.queuePosition', { count: message.meta.count }) }}</span>
+            </div>
+          </div>
+
           <!-- CSAT Message Bubble -->
           <CSATMessageBubble
-            v-if="message.meta?.is_csat"
+            v-else-if="message.meta?.is_csat"
             :message="message"
             @submitted="handleCSATSubmitted"
           />
@@ -153,6 +180,7 @@
 
 <script setup>
 import { ref, computed, nextTick, watch } from 'vue'
+import { Clock } from 'lucide-vue-next'
 import { useDocumentVisibility, useDebounceFn } from '@vueuse/core'
 import { useWidgetStore } from '../store/widget.js'
 import { useChatStore } from '../store/chat.js'
@@ -165,6 +193,7 @@ import ChatIntro from './ChatIntro.vue'
 import NoticeBanner from './NoticeBanner.vue'
 import MessageAttachment from './MessageAttachment.vue'
 import CSATMessageBubble from './CSATMessageBubble.vue'
+import QuickReplyCard from './QuickReplyCard.vue'
 import { TypingIndicator } from '@shared-ui/components/TypingIndicator'
 import { Spinner } from '@shared-ui/components/ui/spinner'
 import { containsQuoteMarkers } from '@shared-ui/utils/quotedContent.js'
@@ -178,6 +207,8 @@ const props = defineProps({
     default: false
   }
 })
+
+const emit = defineEmits(['error'])
 
 const widgetStore = useWidgetStore()
 const chatStore = useChatStore()
@@ -236,6 +267,10 @@ const handleCSATSubmitted = ({ message_uuid, rating, feedback }) => {
 const handleScrollToBottom = () => {
   hasUserScrolled.value = false
   scrollToBottom()
+}
+
+const handleQuickReplyError = (message) => {
+  emit('error', message)
 }
 
 // Debounced version for tab-switch and widget-open triggers only.

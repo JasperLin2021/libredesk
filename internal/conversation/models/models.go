@@ -45,6 +45,14 @@ var (
 	MessageStatusFailed   = "failed"
 	MessageStatusReceived = "received"
 
+	// Message meta types used by the quick reply (automatic reply) feature.
+	MessageMetaTypeBotQuickReply = "bot_quick_reply"
+	MessageMetaTypeQueueInfo     = "queue_info"
+
+	// Conversation meta key marking that the visitor requested a transfer
+	// to a human agent.
+	ConversationMetaBotHumanRequested = "bot_human_requested"
+
 	ActivityStatusChange       = "status_change"
 	ActivityPriorityChange     = "priority_change"
 	ActivityAssignedUserChange = "assigned_user_change"
