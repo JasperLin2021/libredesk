@@ -159,6 +159,9 @@
             <!-- CSAT Response -->
             <CSATResponseDisplay :message="message" />
 
+            <!-- Quick Reply Display -->
+            <QuickReplyDisplay v-if="isBotQuickReply" :message="message" />
+
             <!-- Spinner for Pending Messages (outgoing only) -->
             <Spinner v-if="isOutgoing && message.status === 'pending'" size="sm" />
 
@@ -285,6 +288,7 @@ import ImageLightbox from '@/components/ImageLightbox.vue'
 import BubbleAttachmentPreview from '@main/features/conversation/message/attachment/BubbleAttachmentPreview.vue'
 import MessageEnvelope from './MessageEnvelope.vue'
 import CSATResponseDisplay from './CSATResponseDisplay.vue'
+import QuickReplyDisplay from './QuickReplyDisplay.vue'
 import api from '@main/api'
 import { containsQuoteMarkers } from '@shared-ui/utils/quotedContent.js'
 
@@ -458,6 +462,8 @@ const showEnvelope = computed(() => {
     props.message.meta?.subject
   )
 })
+
+const isBotQuickReply = computed(() => props.message?.meta?.type === 'bot_quick_reply')
 </script>
 
 <style scoped lang="scss">
