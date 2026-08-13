@@ -19,11 +19,12 @@ type InboxQuickReplyConfig struct {
 // QuickReplyTopic is a topic (category) under which quick reply questions
 // are grouped. Each topic belongs to an inbox.
 type QuickReplyTopic struct {
-	ID        int64                `db:"id" json:"id"`
-	InboxID   int64                `db:"inbox_id" json:"inbox_id"`
-	Name      string               `db:"name" json:"name"`
-	SortOrder int                  `db:"sort_order" json:"sort_order"`
-	Questions []QuickReplyQuestion `db:"-" json:"questions,omitempty"`
+	ID          int64                `db:"id" json:"id"`
+	InboxID     int64                `db:"inbox_id" json:"inbox_id"`
+	Name        string               `db:"name" json:"name"`
+	HintMessage string               `db:"hint_message" json:"hint_message"`
+	SortOrder   int                  `db:"sort_order" json:"sort_order"`
+	Questions   []QuickReplyQuestion `db:"-" json:"questions"`
 }
 
 // QuickReplyQuestion is a question under a topic that carries an automatic answer.

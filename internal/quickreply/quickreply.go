@@ -167,9 +167,9 @@ func (m *Manager) GetTopic(id int) (models.QuickReplyTopic, error) {
 }
 
 // CreateTopic creates a new topic under the given inbox.
-func (m *Manager) CreateTopic(inboxID int, name string, sortOrder int) (models.QuickReplyTopic, error) {
+func (m *Manager) CreateTopic(inboxID int, name, hintMessage string, sortOrder int) (models.QuickReplyTopic, error) {
 	var topic models.QuickReplyTopic
-	if err := m.q.InsertTopic.Get(&topic, inboxID, name, sortOrder); err != nil {
+	if err := m.q.InsertTopic.Get(&topic, inboxID, name, hintMessage, sortOrder); err != nil {
 		if dbutil.IsUniqueViolationError(err) {
 			return topic, envelope.NewError(envelope.ConflictError, m.i18n.T("errors.alreadyExistsQuickReplyTopic"), nil)
 		}
@@ -183,9 +183,9 @@ func (m *Manager) CreateTopic(inboxID int, name string, sortOrder int) (models.Q
 }
 
 // UpdateTopic updates a topic by ID.
-func (m *Manager) UpdateTopic(id int, name string, sortOrder int) (models.QuickReplyTopic, error) {
+func (m *Manager) UpdateTopic(id int, name, hintMessage string, sortOrder int) (models.QuickReplyTopic, error) {
 	var topic models.QuickReplyTopic
-	if err := m.q.UpdateTopic.Get(&topic, id, name, sortOrder); err != nil {
+	if err := m.q.UpdateTopic.Get(&topic, id, name, hintMessage, sortOrder); err != nil {
 		if err == sql.ErrNoRows {
 			return topic, envelope.NewError(envelope.InputError, m.i18n.T("validation.notFoundQuickReplyTopic"), nil)
 		}
@@ -444,7 +444,7 @@ func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg m
 	return nil
 }
 
-// sendTopicQuestions sends the question cards of the given topic.
+// sendTopicQuestions sends the hint message and question cards of the given topic.
 func (m *Manager) sendTopicQuestions(conversation cmodels.Conversation, topic models.QuickReplyTopic) error {
 	if len(topic.Questions) == 0 {
 		return nil
@@ -454,6 +454,11 @@ func (m *Manager) sendTopicQuestions(conversation cmodels.Conversation, topic mo
 		items = append(items, map[string]string{"label": question.Question, "value": question.Question})
 	}
 	metaMap := map[string]any{"type": cmodels.MessageMetaTypeBotQuickReply, "items": items}
-	_, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, m.i18n.T("quickReply.selectQuestion"), metaMap)
+	// Use topic's hint message if set, otherwise fall back to i18n default.
+	hintMsg := topic.HintMessage
+	if strings.TrimSpace(hintMsg) == "" {
+		hintMsg = m.i18n.T("quickReply.selectQuestion")
+	}
+	_, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, hintMsg, metaMap)
 	return err
 }

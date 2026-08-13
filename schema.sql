@@ -332,6 +332,7 @@ CREATE TABLE quick_reply_topics (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     inbox_id INT REFERENCES inboxes(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
     name TEXT NOT NULL,
+    hint_message TEXT NOT NULL DEFAULT '请选择您想咨询的问题',
     sort_order INT DEFAULT 0 NOT NULL,
     CONSTRAINT constraint_quick_reply_topics_on_inbox_id_and_name UNIQUE (inbox_id, name)
 );

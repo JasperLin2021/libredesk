@@ -93,8 +93,9 @@ func handleCreateQuickReplyTopic(r *fastglue.Request) error {
 	var (
 		app     = r.Context.(*App)
 		req     = struct {
-			Name      string `json:"name"`
-			SortOrder int    `json:"sort_order"`
+			Name        string `json:"name"`
+			HintMessage string `json:"hint_message"`
+			SortOrder   int    `json:"sort_order"`
 		}{}
 		id, err = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
 	)
@@ -111,7 +112,7 @@ func handleCreateQuickReplyTopic(r *fastglue.Request) error {
 	if len(req.Name) > 500 {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.inputTooLong"), nil, envelope.InputError)
 	}
-	topic, err := app.quickReply.CreateTopic(id, req.Name, req.SortOrder)
+	topic, err := app.quickReply.CreateTopic(id, req.Name, req.HintMessage, req.SortOrder)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}
@@ -123,8 +124,9 @@ func handleUpdateQuickReplyTopic(r *fastglue.Request) error {
 	var (
 		app     = r.Context.(*App)
 		req     = struct {
-			Name      string `json:"name"`
-			SortOrder int    `json:"sort_order"`
+			Name        string `json:"name"`
+			HintMessage string `json:"hint_message"`
+			SortOrder   int    `json:"sort_order"`
 		}{}
 		id, err = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
 	)
@@ -141,7 +143,7 @@ func handleUpdateQuickReplyTopic(r *fastglue.Request) error {
 	if len(req.Name) > 500 {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.inputTooLong"), nil, envelope.InputError)
 	}
-	topic, err := app.quickReply.UpdateTopic(id, req.Name, req.SortOrder)
+	topic, err := app.quickReply.UpdateTopic(id, req.Name, req.HintMessage, req.SortOrder)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}

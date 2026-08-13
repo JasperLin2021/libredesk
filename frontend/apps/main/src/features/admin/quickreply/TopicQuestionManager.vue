@@ -93,7 +93,28 @@
 
         <!-- Questions of the selected topic -->
         <div v-if="selectedTopic" class="space-y-3">
-          <div v-for="question in selectedTopic.questions" :key="question.id" class="rounded-lg border p-3 space-y-2">
+          <!-- Topic hint message -->
+          <div class="rounded-lg border p-3 space-y-2">
+            <Label class="text-xs font-medium">{{ $t('admin.quickReply.hintMessage') }}</Label>
+            <Textarea
+              v-model="selectedTopic.hint_message"
+              :placeholder="$t('admin.quickReply.hintMessagePlaceholder')"
+              rows="2"
+              class="text-sm"
+              @blur="saveHintMessage(selectedTopic)"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              class="h-7 text-xs"
+              :disabled="selectedTopic.__savingHint"
+              @click="saveHintMessage(selectedTopic)"
+            >
+              {{ $t('globals.terms.save') }}
+            </Button>
+          </div>
+
+          <div v-for="question in (selectedTopic.questions || [])" :key="question.id" class="rounded-lg border p-3 space-y-2">
             <div class="flex items-center gap-2">
               <button
                 type="button"
@@ -139,7 +160,7 @@
             </div>
           </div>
 
-          <div v-if="!selectedTopic.questions.length" class="text-sm text-muted-foreground py-6 text-center">
+          <div v-if="!selectedTopic.questions?.length" class="text-sm text-muted-foreground py-6 text-center">
             {{ $t('admin.quickReply.emptyQuestions') }}
           </div>
 
@@ -205,6 +226,12 @@ const emitter = useEmitter()
 
 const topics = ref([])
 const selectedTopicId = ref(null)
+
+function ensureQuestions(topic) {
+  if (topic && !topic.questions) {
+    topic.questions = []
+  }
+}
 const addingTopic = ref(false)
 const newTopicName = ref('')
 const topicSaving = ref(false)
@@ -225,6 +252,7 @@ const showSuccess = () => {
 const loadTopics = async () => {
   const resp = await api.getQuickReplyTopics(props.inboxId)
   topics.value = resp.data.data
+  topics.value.forEach(ensureQuestions)
   if (selectedTopicId.value && !topics.value.some((topic) => topic.id === selectedTopicId.value)) {
     selectedTopicId.value = null
   }
@@ -244,9 +272,11 @@ watch(
 
 const isFirst = (topic) => topics.value.indexOf(topic) === 0
 const isLast = (topic) => topics.value.indexOf(topic) === topics.value.length - 1
-const isFirstQuestion = (question) => selectedTopic.value?.questions.indexOf(question) === 0
-const isLastQuestion = (question) =>
-  selectedTopic.value?.questions.indexOf(question) === selectedTopic.value?.questions.length - 1
+const isFirstQuestion = (question) => (selectedTopic.value?.questions || []).indexOf(question) === 0
+const isLastQuestion = (question) => {
+  const list = selectedTopic.value?.questions || []
+  return list.indexOf(question) === list.length - 1
+}
 
 const startAddTopic = () => {
   newTopicName.value = ''
@@ -259,6 +289,7 @@ const createTopic = async () => {
   try {
     const resp = await api.createQuickReplyTopic(props.inboxId, {
       name: newTopicName.value.trim(),
+      hint_message: t('admin.quickReply.hintMessageDefault'),
       sort_order: topics.value.length
     })
     addingTopic.value = false
@@ -288,11 +319,25 @@ const saveTopicName = async (topic) => {
   editingTopicId.value = null
   if (!name || name === topic.name) return
   try {
-    const resp = await api.updateQuickReplyTopic(topic.id, { name, sort_order: topic.sort_order })
+    const resp = await api.updateQuickReplyTopic(topic.id, { name, hint_message: topic.hint_message || '', sort_order: topic.sort_order })
     topic.name = resp.data.data.name
     showSuccess()
   } catch (error) {
     showError(error)
+  }
+}
+
+const saveHintMessage = async (topic) => {
+  if (!topic || topic.__savingHint) return
+  topic.__savingHint = true
+  try {
+    const resp = await api.updateQuickReplyTopic(topic.id, { name: topic.name, hint_message: topic.hint_message || '', sort_order: topic.sort_order })
+    topic.hint_message = resp.data.data.hint_message
+    showSuccess()
+  } catch (error) {
+    showError(error)
+  } finally {
+    topic.__savingHint = false
   }
 }
 
@@ -302,8 +347,8 @@ const moveTopic = async (topic, direction) => {
   if (swapIndex < 0 || swapIndex >= topics.value.length) return
   const other = topics.value[swapIndex]
   try {
-    await api.updateQuickReplyTopic(topic.id, { name: topic.name, sort_order: other.sort_order })
-    await api.updateQuickReplyTopic(other.id, { name: other.name, sort_order: topic.sort_order })
+    await api.updateQuickReplyTopic(topic.id, { name: topic.name, hint_message: topic.hint_message || '', sort_order: other.sort_order })
+    await api.updateQuickReplyTopic(other.id, { name: other.name, hint_message: other.hint_message || '', sort_order: topic.sort_order })
     await loadTopics()
   } catch (error) {
     showError(error)
@@ -338,7 +383,7 @@ const addQuestion = async () => {
     const resp = await api.createQuickReplyQuestion(selectedTopicId.value, {
       question: t('admin.quickReply.newQuestionPlaceholder'),
       answer: '',
-      sort_order: selectedTopic.value.questions.length
+      sort_order: selectedTopic.value.questions?.length || 0
     })
     await loadTopics()
     selectedTopicId.value = resp.data.data.topic_id
@@ -366,7 +411,7 @@ const saveQuestion = async (question) => {
 }
 
 const moveQuestion = async (question, direction) => {
-  const list = selectedTopic.value.questions
+  const list = selectedTopic.value.questions || []
   const index = list.indexOf(question)
   const swapIndex = index + direction
   if (swapIndex < 0 || swapIndex >= list.length) return

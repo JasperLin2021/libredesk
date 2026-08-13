@@ -52,6 +52,7 @@ select
     id,
     inbox_id,
     name,
+    hint_message,
     sort_order
 from
     quick_reply_topics
@@ -66,6 +67,7 @@ select
     id,
     inbox_id,
     name,
+    hint_message,
     sort_order
 from
     quick_reply_topics
@@ -74,9 +76,9 @@ where
 
 -- name: insert-topic
 insert into
-    quick_reply_topics (inbox_id, name, sort_order)
+    quick_reply_topics (inbox_id, name, hint_message, sort_order)
 values
-    ($1, $2, $3)
+    ($1, $2, $3, $4)
 returning
     *;
 
@@ -85,7 +87,8 @@ update
     quick_reply_topics
 set
     name = $2,
-    sort_order = $3,
+    hint_message = $3,
+    sort_order = $4,
     updated_at = now()
 where
     id = $1
