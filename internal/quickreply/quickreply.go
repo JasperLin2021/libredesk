@@ -284,13 +284,6 @@ func (m *Manager) SendWelcomeReply(conversation cmodels.Conversation) error {
 		m.lo.Debug("quick reply: config not enabled for inbox", "inbox_id", conversation.InboxID, "conversation_uuid", conversation.UUID)
 		return nil
 	}
-	if strings.TrimSpace(cfg.WelcomeMessage) == "" {
-		m.lo.Debug("quick reply: welcome message is empty for inbox", "inbox_id", conversation.InboxID, "conversation_uuid", conversation.UUID)
-		return nil
-	}
-
-	m.lo.Info("quick reply: sending welcome message", "conversation_uuid", conversation.UUID, "inbox_id", conversation.InboxID, "contact_id", conversation.ContactID)
-
 	// Build topic items (optional — welcome message is sent even without topics).
 	items := make([]map[string]string, 0)
 	topics, err := m.GetTopics(conversation.InboxID)
@@ -300,12 +293,29 @@ func (m *Manager) SendWelcomeReply(conversation cmodels.Conversation) error {
 		}
 	}
 
+	hasWelcomeMessage := strings.TrimSpace(cfg.WelcomeMessage) != ""
+	hasTopics := len(items) > 0
+
+	if !hasWelcomeMessage && !hasTopics {
+		m.lo.Debug("quick reply: no welcome message and no topics for inbox", "inbox_id", conversation.InboxID, "conversation_uuid", conversation.UUID)
+		return nil
+	}
+
+	m.lo.Info("quick reply: sending welcome message", "conversation_uuid", conversation.UUID, "inbox_id", conversation.InboxID, "contact_id", conversation.ContactID, "has_welcome_message", hasWelcomeMessage, "has_topics", hasTopics)
+
+	// Use empty content when no welcome message is configured
+	// but topics are available, so the topic cards are still delivered.
+	content := cfg.WelcomeMessage
+	if !hasWelcomeMessage {
+		content = ""
+	}
+
 	metaMap := map[string]any{
 		"type":             cmodels.MessageMetaTypeBotQuickReply,
 		"items":            items,
 		"transfer_keyword": cfg.TransferKeyword,
 	}
-	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.WelcomeMessage, metaMap); err != nil {
+	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, content, metaMap); err != nil {
 		m.lo.Error("quick reply: error sending welcome auto reply", "conversation_uuid", conversation.UUID, "error", err)
 		return err
 	}
@@ -317,59 +327,69 @@ func (m *Manager) SendWelcomeReply(conversation cmodels.Conversation) error {
 // reply when the message matches the configured transfer keyword, a topic, or
 // a question. It is a no-op when quick reply is disabled, the conversation is
 // already handled by a human agent, or the visitor has already requested a
-// transfer to a human agent.
-func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, content string) error {
+// transfer to a human agent. It returns the list of bot messages created.
+func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, content string) ([]cmodels.Message, error) {
 	if m.conv == nil {
-		return nil
+		return nil, nil
 	}
 	cfg, err := m.GetConfig(conversation.InboxID)
 	if err != nil || !cfg.Enabled {
-		return nil
+		return nil, nil
 	}
 
 	// Skip when the conversation is already handled by a human agent.
 	if conversation.AssignedUserID.Valid || conversation.AssignedTeamID.Valid {
-		return nil
+		return nil, nil
 	}
 
 	// Skip when the visitor has already requested a transfer to a human agent.
 	meta, err := m.conv.GetConversationMeta(conversation.UUID)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	if requested, _ := meta[cmodels.ConversationMetaBotHumanRequested].(bool); requested {
-		return nil
+		return nil, nil
 	}
 
 	content = strings.TrimSpace(content)
 	if content == "" {
-		return nil
+		return nil, nil
 	}
 
 	// Transfer to human agent.
 	if cfg.TransferKeyword != "" && content == cfg.TransferKeyword {
-		return m.handleTransferRequest(conversation, cfg)
+		return nil, m.handleTransferRequest(conversation, cfg)
 	}
 
 	// Match against configured topics and questions.
 	topics, err := m.GetTopicsWithQuestions(conversation.InboxID)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	for _, topic := range topics {
 		// Exact topic match: send the topic's question cards.
 		if topic.Name == content {
-			return m.sendTopicQuestions(conversation, topic)
+			msg, err := m.sendTopicQuestions(conversation, topic)
+			if err != nil {
+				return nil, err
+			}
+			if msg.ID > 0 {
+				return []cmodels.Message{msg}, nil
+			}
+			return nil, nil
 		}
 		// Exact question match: send the answer.
 		for _, question := range topic.Questions {
 			if question.Question == content {
-				_, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, question.Answer, nil)
-				return err
+				msg, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, question.Answer, nil)
+				if err != nil {
+					return nil, err
+				}
+				return []cmodels.Message{msg}, nil
 			}
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // HandleUserAssigned sends the "you are now connected to a human agent" reply
@@ -445,9 +465,9 @@ func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg m
 }
 
 // sendTopicQuestions sends the hint message and question cards of the given topic.
-func (m *Manager) sendTopicQuestions(conversation cmodels.Conversation, topic models.QuickReplyTopic) error {
+func (m *Manager) sendTopicQuestions(conversation cmodels.Conversation, topic models.QuickReplyTopic) (cmodels.Message, error) {
 	if len(topic.Questions) == 0 {
-		return nil
+		return cmodels.Message{}, nil
 	}
 	items := make([]map[string]string, 0, len(topic.Questions))
 	for _, question := range topic.Questions {
@@ -459,6 +479,6 @@ func (m *Manager) sendTopicQuestions(conversation cmodels.Conversation, topic mo
 	if strings.TrimSpace(hintMsg) == "" {
 		hintMsg = m.i18n.T("quickReply.selectQuestion")
 	}
-	_, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, hintMsg, metaMap)
-	return err
+	msg, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, hintMsg, metaMap)
+	return msg, err
 }

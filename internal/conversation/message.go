@@ -973,15 +973,15 @@ func (m *Manager) isVisitorUpgradeSafe(conversation models.Conversation) bool {
 }
 
 // ProcessIncomingLiveChatMessage handles incoming live chat messages.
-func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message) (models.Message, error) {
+func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message) (models.Message, []models.Message, error) {
 	// Upload message attachments.
 	if err := m.uploadMessageAttachments(&msg); err != nil {
-		return models.Message{}, fmt.Errorf("uploading message attachments: %w", err)
+		return models.Message{}, nil, fmt.Errorf("uploading message attachments: %w", err)
 	}
 
 	// Insert message.
 	if err := m.InsertMessage(&msg); err != nil {
-		return models.Message{}, err
+		return models.Message{}, nil, err
 	}
 
 	// Advance contact_last_seen_at.
@@ -996,15 +996,18 @@ func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message) (models.Mes
 	}
 
 	// Run quick reply (automatic reply) matching for visitor messages.
+	var botMessages []models.Message
 	if m.quickReply != nil {
 		if conversation, err := m.GetConversation(0, msg.ConversationUUID, ""); err == nil {
-			if err := m.quickReply.HandleIncomingMessage(conversation, msg.Content); err != nil {
+			botMsgs, err := m.quickReply.HandleIncomingMessage(conversation, msg.Content)
+			if err != nil {
 				m.lo.Error("error processing quick reply match", "conversation_uuid", msg.ConversationUUID, "error", err)
 			}
+			botMessages = append(botMessages, botMsgs...)
 		}
 	}
 
-	return msg, nil
+	return msg, botMessages, nil
 }
 
 // MessageExists checks if a message with the given messageID exists.

@@ -112,18 +112,31 @@ const sendMessageToConversation = async (messageText, tempMessageID) => {
     message: messageText
   })
 
-  if (tempMessageID && messageResp.data.data) {
+  const data = messageResp.data.data
+  // The response may be { message, bot_messages } when quick reply
+  // processing creates automatic bot replies.
+  const userMessage = data?.message || data
+  const botMessages = data?.bot_messages || []
+
+  if (tempMessageID && userMessage) {
     chatStore.replaceMessage(
       chatStore.currentConversation.uuid,
       tempMessageID,
-      messageResp.data.data
+      userMessage
     )
   }
-  if (messageResp.data.data) {
+  if (userMessage) {
     chatStore.updateConversationListLastMessage(
       chatStore.currentConversation.uuid,
-      messageResp.data.data
+      userMessage
     )
+  }
+
+  // Append any bot messages created by quick reply matching.
+  if (Array.isArray(botMessages)) {
+    botMessages.forEach((botMsg) => {
+      chatStore.addMessageToConversation(chatStore.currentConversation.uuid, botMsg)
+    })
   }
 }
 
@@ -210,11 +223,24 @@ const handleFileUpload = async (files) => {
   try {
     const resp = await api.uploadMedia(chatStore.currentConversation.uuid, files)
 
-    if (tempMessageID && resp.data.data) {
-      chatStore.replaceMessage(chatStore.currentConversation.uuid, tempMessageID, resp.data.data)
+    const data = resp.data.data
+    // The response may be { message, bot_messages } when quick reply
+    // processing creates automatic bot replies.
+    const userMessage = data?.message || data
+    const botMessages = data?.bot_messages || []
+
+    if (tempMessageID && userMessage) {
+      chatStore.replaceMessage(chatStore.currentConversation.uuid, tempMessageID, userMessage)
     }
-    if (resp.data.data) {
-      chatStore.updateConversationListLastMessage(chatStore.currentConversation.uuid, resp.data.data)
+    if (userMessage) {
+      chatStore.updateConversationListLastMessage(chatStore.currentConversation.uuid, userMessage)
+    }
+
+    // Append any bot messages created by quick reply matching.
+    if (Array.isArray(botMessages)) {
+      botMessages.forEach((botMsg) => {
+        chatStore.addMessageToConversation(chatStore.currentConversation.uuid, botMsg)
+      })
     }
   } catch (error) {
     // Remove failed upload message

@@ -103,12 +103,27 @@ const sendQuickReply = async (value) => {
 
   try {
     const resp = await api.sendChatMessage(conversationUUID, { message: value })
-    if (tempMessageID && resp.data.data) {
-      chatStore.replaceMessage(conversationUUID, tempMessageID, resp.data.data)
+    const data = resp.data.data
+
+    // The response may be { message, bot_messages } when quick reply
+    // processing creates automatic bot replies.
+    const userMessage = data?.message || data
+    const botMessages = data?.bot_messages || []
+
+    if (tempMessageID && userMessage) {
+      chatStore.replaceMessage(conversationUUID, tempMessageID, userMessage)
     }
-    if (resp.data.data) {
-      chatStore.updateConversationListLastMessage(conversationUUID, resp.data.data)
+    if (userMessage) {
+      chatStore.updateConversationListLastMessage(conversationUUID, userMessage)
     }
+
+    // Append any bot messages created by quick reply matching.
+    if (Array.isArray(botMessages)) {
+      botMessages.forEach((botMsg) => {
+        chatStore.addMessageToConversation(conversationUUID, botMsg)
+      })
+    }
+
     emit('error', '')
   } catch (error) {
     if (tempMessageID) {
