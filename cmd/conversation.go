@@ -822,8 +822,32 @@ func handleCreateConversation(r *fastglue.Request) error {
 		if envErr, ok := err.(envelope.Error); !ok || envErr.ErrorType != envelope.NotFoundError {
 			return sendErrorEnvelope(r, err)
 		}
-		if err := app.user.CreateContact(&contact); err != nil {
-			return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+		// No contact found – check if there's a visitor with the same email.
+		// If so, upgrade the visitor in-place so existing conversations reflect
+		// the new contact identity instead of staying as "Visitor".
+		visitor, vErr := app.user.GetVisitorByEmail(email)
+		if vErr == nil && visitor.ID > 0 {
+			if err := app.user.UpgradeVisitorToContact(visitor.ID); err != nil {
+				return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+			}
+			// Sync name from the create-conversation request.
+			if req.FirstName != "" || req.LastName != "" {
+				if err := app.user.UpdateContactBasicInfo(visitor.ID, req.FirstName, req.LastName, email, "", ""); err != nil {
+					app.lo.Error("error updating upgraded visitor name", "contact_id", visitor.ID, "error", err)
+				}
+			}
+			// Broadcast the type/name change so existing conversations update.
+			broadcastFields := map[string]any{"type": umodels.UserTypeContact}
+			if req.FirstName != "" || req.LastName != "" {
+				broadcastFields["first_name"] = req.FirstName
+				broadcastFields["last_name"] = req.LastName
+			}
+			app.conversation.BroadcastContactUpdate(visitor.ID, broadcastFields)
+			contact.ID = visitor.ID
+		} else {
+			if err := app.user.CreateContact(&contact); err != nil {
+				return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+			}
 		}
 	} else {
 		contact.ID = existing.ID

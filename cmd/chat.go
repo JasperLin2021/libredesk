@@ -884,17 +884,63 @@ func resolveOrCreateExternalContact(app *App, claims Claims) (int, error) {
 
 	// Sync name/email/phone from JWT only if changed.
 	if user.ID > 0 && claims.ExternalUserID != "" {
+		broadcastFields := make(map[string]any)
+
+		// If the user is still a visitor, upgrade them to a contact so the
+		// sidebar correctly shows them as an authenticated contact.
+		if user.Type == umodels.UserTypeVisitor {
+			if err := app.user.UpgradeVisitorToContact(user.ID); err != nil {
+				return 0, err
+			}
+			broadcastFields["type"] = umodels.UserTypeContact
+		}
 		if user.FirstName != claims.FirstName || user.LastName != claims.LastName || user.Email.String != claims.Email ||
 			user.PhoneNumber.String != claims.PhoneNumber || user.PhoneNumberCountryCode.String != claims.PhoneNumberCountryCode {
 			if err := app.user.UpdateContactBasicInfo(user.ID, claims.FirstName, claims.LastName, claims.Email, claims.PhoneNumber, claims.PhoneNumberCountryCode); err != nil {
 				app.lo.Error("error updating contact basic info", "contact_id", user.ID, "error", err)
 			}
+			broadcastFields["first_name"] = claims.FirstName
+			broadcastFields["last_name"] = claims.LastName
+			broadcastFields["email"] = claims.Email
+		}
+		if len(broadcastFields) > 0 {
+			app.conversation.BroadcastContactUpdate(user.ID, broadcastFields)
 		}
 		return user.ID, nil
 	}
 
 	// Create contact if not found.
 	if claims.ExternalUserID != "" {
+		// Before creating a new contact, check if there's an existing visitor
+		// with the same email. If so, upgrade that visitor in-place so their
+		// existing conversations automatically reflect the authenticated identity.
+		if claims.Email != "" {
+			visitor, vErr := app.user.GetVisitorByEmail(claims.Email)
+			if vErr == nil && visitor.ID > 0 {
+				// Upgrade visitor to contact and sync JWT fields.
+				if err := app.user.UpgradeVisitorToContact(visitor.ID); err != nil {
+					return 0, err
+				}
+				if err := app.user.UpdateContactBasicInfo(visitor.ID, claims.FirstName, claims.LastName, claims.Email, claims.PhoneNumber, claims.PhoneNumberCountryCode); err != nil {
+					return 0, err
+				}
+				if _, err := app.user.SetExternalUserID(visitor.ID, claims.ExternalUserID); err != nil {
+					return 0, err
+				}
+				// Save contact-level custom attributes from JWT.
+				if len(claims.ContactCustomAttributes) > 0 {
+					if err := app.user.SaveCustomAttributes(visitor.ID, claims.ContactCustomAttributes, false); err != nil {
+						app.lo.Error("error saving custom attributes on upgraded visitor", "contact_id", visitor.ID, "error", err)
+					}
+				}
+				// Broadcast the type change so open dashboards refresh.
+				app.conversation.BroadcastContactUpdate(visitor.ID, map[string]any{
+					"type": umodels.UserTypeContact,
+				})
+				return visitor.ID, nil
+			}
+		}
+
 		user := umodels.User{
 			FirstName:              claims.FirstName,
 			LastName:               claims.LastName,

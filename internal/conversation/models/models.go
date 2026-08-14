@@ -163,6 +163,7 @@ type ConversationListContact struct {
 	LastName  string      `db:"last_name" json:"last_name"`
 	Email     null.String `db:"email" json:"email"`
 	AvatarURL null.String `db:"avatar_url" json:"avatar_url"`
+	Type      string      `db:"type" json:"type"`
 }
 
 type Conversation struct {
