@@ -10,13 +10,7 @@
           v-for="item in items"
           :key="item.value"
           type="button"
-          :disabled="isDisabled(item.value)"
-          :class="[
-            'text-left text-sm font-medium px-3 py-2 rounded-lg border transition-all duration-150',
-            isDisabled(item.value)
-              ? 'opacity-40 cursor-not-allowed border-muted-foreground/20 bg-muted-foreground/10 text-muted-foreground'
-              : 'cursor-pointer border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary/40'
-          ]"
+          class="text-left text-sm font-medium px-3 py-2 rounded-lg border transition-all duration-150 cursor-pointer border-primary/25 bg-primary/5 text-primary hover:bg-primary/10 hover:border-primary/40"
           @click="sendQuickReply(item.value)"
         >
           {{ item.label }}
@@ -27,13 +21,7 @@
       <button
         v-if="transferKeyword"
         type="button"
-        :disabled="isDisabled(transferKeyword)"
-        :class="[
-          'mt-3 w-full text-left text-sm font-medium px-3 py-2 rounded-lg border transition-all duration-150',
-          isDisabled(transferKeyword)
-            ? 'opacity-40 cursor-not-allowed border-muted-foreground/20 bg-muted-foreground/10 text-muted-foreground'
-            : 'cursor-pointer border-secondary/40 bg-secondary/10 text-foreground hover:bg-secondary/20 hover:border-secondary/60'
-        ]"
+        class="mt-3 w-full text-left text-sm font-medium px-3 py-2 rounded-lg border transition-all duration-150 cursor-pointer border-secondary/40 bg-secondary/10 text-foreground hover:bg-secondary/20 hover:border-secondary/60"
         @click="sendQuickReply(transferKeyword)"
       >
         {{ transferKeyword }}
@@ -43,7 +31,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useWidgetStore } from '../store/widget.js'
 import { useUserStore } from '../store/user.js'
 import { useChatStore } from '../store/chat.js'
@@ -63,9 +51,6 @@ const chatStore = useChatStore()
 const userStore = useUserStore()
 const widgetStore = useWidgetStore()
 
-// Values that have already been clicked (and sent) are disabled.
-const clickedValues = ref(new Set())
-
 const items = computed(() => props.message?.meta?.items || [])
 const transferKeyword = computed(() => props.message?.meta?.transfer_keyword || '')
 
@@ -81,15 +66,8 @@ const contentWithoutTransfer = computed(() => {
     .join('\n')
 })
 
-const isDisabled = (value) => clickedValues.value.has(value)
-
 const sendQuickReply = async (value) => {
-  if (!value || clickedValues.value.has(value)) return
-
-  // Immediately disable the button for instant feedback.
-  const next = new Set(clickedValues.value)
-  next.add(value)
-  clickedValues.value = next
+  if (!value) return
 
   const conversationUUID = chatStore.currentConversation?.uuid
   if (!conversationUUID) return

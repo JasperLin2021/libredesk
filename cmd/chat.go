@@ -253,6 +253,18 @@ func handleChatInit(r *fastglue.Request) error {
 			}
 		}
 
+		// Clear the bot human transfer request flag so that quick reply
+		// auto-replies work again when the user starts a new session.
+		convMeta, metaErr := app.conversation.GetConversationMeta(conversationUUID)
+		if metaErr == nil {
+			if _, ok := convMeta[cmodels.ConversationMetaBotHumanRequested]; ok {
+				delete(convMeta, cmodels.ConversationMetaBotHumanRequested)
+				if err := app.conversation.UpdateConversationMeta(conversationUUID, convMeta); err != nil {
+					app.lo.Error("error clearing bot human requested meta", "uuid", conversationUUID, "error", err)
+				}
+			}
+		}
+
 		app.lo.Info("reusing existing conversation for user", "user_id", contactID, "conversation_uuid", conversationUUID)
 
 		// For reused conversations, send welcome reply so the user sees
