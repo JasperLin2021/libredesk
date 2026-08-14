@@ -420,7 +420,6 @@ LEFT JOIN users lis ON c.last_interaction_sender_id = lis.id
 WHERE c.contact_id = $1 AND c.inbox_id = $2
   AND inb.deleted_at IS NULL
   AND con.deleted_at IS NULL
-  AND cs.name = 'Open'
 ORDER BY c.created_at DESC
 LIMIT 200;
 
@@ -628,6 +627,22 @@ WHERE
   AND status_id IN (
     SELECT id FROM conversation_statuses WHERE name NOT IN ('Open')
   )
+
+-- name: reopen-and-unassign-conversation
+-- Reopen a closed conversation and set it to unassigned status
+UPDATE conversations
+SET 
+  status_id = (SELECT id FROM conversation_statuses WHERE name = 'Open'),
+  assigned_user_id = NULL,
+  assigned_team_id = NULL,
+  snoozed_until = NULL,
+  closed_at = NULL,
+  updated_at = NOW()
+WHERE 
+  uuid = $1
+  AND status_id IN (
+    SELECT id FROM conversation_statuses WHERE name = 'Closed'
+  );
 
 -- name: get-conversation-by-message-id
 SELECT

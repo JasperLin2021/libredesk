@@ -387,6 +387,7 @@ type queries struct {
 	GetConversationTags                 *sqlx.Stmt `query:"get-conversation-tags"`
 	UnassignOpenConversations           *sqlx.Stmt `query:"unassign-open-conversations"`
 	ReOpenConversation                  *sqlx.Stmt `query:"re-open-conversation"`
+	ReopenAndUnassignConversation       *sqlx.Stmt `query:"reopen-and-unassign-conversation"`
 	UnsnoozeAll                         *sqlx.Stmt `query:"unsnooze-all"`
 	DeleteConversation                  *sqlx.Stmt `query:"delete-conversation"`
 	RemoveConversationAssignee          *sqlx.Stmt `query:"remove-conversation-assignee"`
@@ -1129,6 +1130,43 @@ func (c *Manager) UpdateConversationStatus(uuid string, statusID int, status, sn
 	c.BroadcastConversationToWidget(uuid, conversationBeforeChange.ContactID, conversationBeforeChange.InboxID, map[string]any{
 		"status": status,
 	})
+
+	return nil
+}
+
+// ReopenAndUnassignConversation reopens a closed conversation and sets it to unassigned status.
+// This is used when a contact sends a message to a closed conversation.
+func (c *Manager) ReopenAndUnassignConversation(uuid string, contactID int, inboxID int) error {
+	// Get the conversation before change for broadcasting.
+	conversationBeforeChange, err := c.GetConversation(0, uuid, "")
+	if err != nil {
+		c.lo.Error("error fetching conversation before reopen", "uuid", uuid, "error", err)
+		return envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+
+	// Execute the reopen and unassign query.
+	if _, err := c.q.ReopenAndUnassignConversation.Exec(uuid); err != nil {
+		c.lo.Error("error reopening and unassigning conversation", "uuid", uuid, "error", err)
+		return envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+
+	// Broadcast the status change to agents.
+	c.BroadcastConversationUpdate(uuid, map[string]any{
+		"status":           models.StatusOpen,
+		"assigned_user_id": nil,
+		"assigned_team_id": nil,
+	})
+
+	// Broadcast conversation update to widget clients.
+	c.BroadcastConversationToWidget(uuid, contactID, inboxID, map[string]any{
+		"status":           models.StatusOpen,
+		"assigned_user_id": nil,
+		"assigned_team_id": nil,
+	})
+
+	c.lo.Info("conversation reopened and unassigned due to contact message",
+		"uuid", uuid,
+		"previous_status", conversationBeforeChange.Status.String)
 
 	return nil
 }

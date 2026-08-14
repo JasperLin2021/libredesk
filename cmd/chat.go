@@ -228,70 +228,103 @@ func handleChatInit(r *fastglue.Request) error {
 		contactID = visitor.ID
 	}
 
-	// Check conversation permissions based on user type.
-	if err := checkConversationPermissions(app, config, isVisitor, contactID, inbox.ID); err != nil {
-		return sendErrorEnvelope(r, err)
-	}
-
-	app.lo.Info("creating new live chat conversation for user", "user_id", contactID, "inbox_id", inbox.ID, "is_visitor", isVisitor)
-
-	// Create conversation.
-	meta := map[string]any{
-		"ip":         clientIP,
-		"user_agent": userAgent,
-	}
-	_, conversationUUID, err := app.conversation.CreateConversation(
-		contactID,
-		inbox.ID,
-		"",
-		time.Now(),
-		"",
-		false,
-		meta,
-		conversationAttrs,
-		maxChatConversationsPerContact,
-		chatConversationRateLimitWindow,
-	)
+	// Check if user already has an existing conversation.
+	// Same user should always use the same conversation.
+	existingConversations, err := app.conversation.GetContactChatConversations(contactID, inbox.ID)
 	if err != nil {
-		if envErr, ok := err.(envelope.Error); ok && envErr.ErrorType == envelope.RateLimitError {
+		app.lo.Error("error fetching existing conversations", "contact_id", contactID, "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+	}
+
+	var conversationUUID string
+	var conversation cmodels.Conversation
+
+	if len(existingConversations) > 0 {
+		// User already has a conversation, use the most recent one.
+		existingConv := existingConversations[0]
+		conversationUUID = existingConv.UUID
+
+		// If the conversation is closed, reopen it and set to unassigned status.
+		if existingConv.Status == cmodels.StatusClosed {
+			if err := app.conversation.ReopenAndUnassignConversation(conversationUUID, contactID, inbox.ID); err != nil {
+				app.lo.Error("error reopening closed conversation", "uuid", conversationUUID, "error", err)
+				return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+			}
+		}
+
+		app.lo.Info("reusing existing conversation for user", "user_id", contactID, "conversation_uuid", conversationUUID)
+
+		// For reused conversations, send welcome reply so the user sees
+		// the welcome message and preset questions immediately.
+		if err := app.conversation.SendWelcomeReply(conversationUUID); err != nil {
+			app.lo.Error("error sending welcome reply for reused conversation", "conversation_uuid", conversationUUID, "error", err)
+		}
+	} else {
+		// Check conversation permissions based on user type.
+		if err := checkConversationPermissions(app, config, isVisitor, contactID, inbox.ID); err != nil {
 			return sendErrorEnvelope(r, err)
 		}
-		app.lo.Error("error creating conversation", "error", err)
-		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
-	}
 
-	// If the user sent an initial message, insert it and process hooks.
-	// Otherwise, just trigger new-conversation hooks (welcome reply, webhooks, automation).
-	if strings.TrimSpace(req.Message) != "" {
-		message := cmodels.Message{
-			ConversationUUID: conversationUUID,
-			SenderID:         contactID,
-			Type:             cmodels.MessageIncoming,
-			SenderType:       cmodels.SenderTypeContact,
-			Status:           cmodels.MessageStatusReceived,
-			Content:          req.Message,
-			ContentType:      cmodels.ContentTypeText,
-			Private:          false,
+		app.lo.Info("creating new live chat conversation for user", "user_id", contactID, "inbox_id", inbox.ID, "is_visitor", isVisitor)
+
+		// Create conversation.
+		meta := map[string]any{
+			"ip":         clientIP,
+			"user_agent": userAgent,
 		}
-		if err := app.conversation.InsertMessage(&message); err != nil {
-			// Clean up conversation if message insert fails.
-			if err := app.conversation.DeleteConversation(conversationUUID); err != nil {
-				app.lo.Error("error deleting conversation after message insert failure", "conversation_uuid", conversationUUID, "error", err)
-				return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
+		_, conversationUUID, err = app.conversation.CreateConversation(
+			contactID,
+			inbox.ID,
+			"",
+			time.Now(),
+			"",
+			false,
+			meta,
+			conversationAttrs,
+			maxChatConversationsPerContact,
+			chatConversationRateLimitWindow,
+		)
+		if err != nil {
+			if envErr, ok := err.(envelope.Error); ok && envErr.ErrorType == envelope.RateLimitError {
+				return sendErrorEnvelope(r, err)
 			}
-			app.lo.Error("error inserting initial message", "conversation_uuid", conversationUUID, "error", err)
+			app.lo.Error("error creating conversation", "error", err)
 			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 		}
+
+		// If the user sent an initial message, insert it and process hooks.
+		// Otherwise, just trigger new-conversation hooks (welcome reply, webhooks, automation).
+		if strings.TrimSpace(req.Message) != "" {
+			message := cmodels.Message{
+				ConversationUUID: conversationUUID,
+				SenderID:         contactID,
+				Type:             cmodels.MessageIncoming,
+				SenderType:       cmodels.SenderTypeContact,
+				Status:           cmodels.MessageStatusReceived,
+				Content:          req.Message,
+				ContentType:      cmodels.ContentTypeText,
+				Private:          false,
+			}
+			if err := app.conversation.InsertMessage(&message); err != nil {
+				// Clean up conversation if message insert fails.
+				if err := app.conversation.DeleteConversation(conversationUUID); err != nil {
+					app.lo.Error("error deleting conversation after message insert failure", "conversation_uuid", conversationUUID, "error", err)
+					return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
+				}
+				app.lo.Error("error inserting initial message", "conversation_uuid", conversationUUID, "error", err)
+				return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
+			}
+		}
+
+		// Process post-message hooks for the new conversation (welcome reply, webhooks, automation).
+		if err := app.conversation.ProcessIncomingMessageHooks(conversationUUID, true); err != nil {
+			app.lo.Error("error processing incoming message hooks for new conversation", "conversation_uuid", conversationUUID, "error", err)
+		}
 	}
 
-	// Process post-message hooks for the new conversation (welcome reply, webhooks, automation).
-	if err := app.conversation.ProcessIncomingMessageHooks(conversationUUID, true); err != nil {
-		app.lo.Error("error processing incoming message hooks for new conversation", "conversation_uuid", conversationUUID, "error", err)
-	}
-
-	conversation, err := app.conversation.GetConversation(0, conversationUUID, "")
+	conversation, err = app.conversation.GetConversation(0, conversationUUID, "")
 	if err != nil {
-		app.lo.Error("error fetching created conversation", "conversation_uuid", conversationUUID, "error", err)
+		app.lo.Error("error fetching conversation", "conversation_uuid", conversationUUID, "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
 	}
 
@@ -544,6 +577,20 @@ func handleChatSendMessage(r *fastglue.Request) error {
 		return err
 	}
 
+	// If the conversation is closed, reopen it and set to unassigned status.
+	// This allows the same user to always use the same conversation.
+	if conversation.Status.String == cmodels.StatusClosed {
+		if err := app.conversation.ReopenAndUnassignConversation(conversationUUID, conversation.ContactID, conversation.InboxID); err != nil {
+			app.lo.Error("error reopening closed conversation", "uuid", conversationUUID, "error", err)
+			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+		}
+		// Refresh the conversation to get the updated status.
+		_, conversation, err = getContactConversation(r, conversationUUID)
+		if err != nil {
+			return err
+		}
+	}
+
 	if err := canReply(r, conversation); err != nil {
 		return sendErrorEnvelope(r, err)
 	}
@@ -588,6 +635,20 @@ func handleWidgetMediaUpload(r *fastglue.Request) error {
 	senderID, conversation, err := getContactConversation(r, conversationUUID)
 	if err != nil {
 		return err
+	}
+
+	// If the conversation is closed, reopen it and set to unassigned status.
+	// This allows the same user to always use the same conversation.
+	if conversation.Status.String == cmodels.StatusClosed {
+		if err := app.conversation.ReopenAndUnassignConversation(conversationUUID, conversation.ContactID, conversation.InboxID); err != nil {
+			app.lo.Error("error reopening closed conversation", "uuid", conversationUUID, "error", err)
+			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+		}
+		// Refresh the conversation to get the updated status.
+		_, conversation, err = getContactConversation(r, conversationUUID)
+		if err != nil {
+			return err
+		}
 	}
 
 	if err := canReply(r, conversation); err != nil {
@@ -860,6 +921,8 @@ func checkConversationPermissions(app *App, config livechat.Config, isVisitor bo
 			app.lo.Error("error fetching "+userTypeLabel(isVisitor)+" conversations", "contact_id", contactID, "error", err)
 			return envelope.NewError(envelope.GeneralError, "Error checking existing conversations", nil)
 		}
+		// Check if user has any conversation (regardless of status).
+		// Same user should always use the same conversation.
 		if len(conversations) > 0 {
 			app.lo.Info(userTypeLabel(isVisitor)+" attempted to start new conversation but already has one", "contact_id", contactID, "conversations_count", len(conversations))
 			return envelope.NewError(envelope.PermissionError, "Multiple conversations are not allowed", nil)

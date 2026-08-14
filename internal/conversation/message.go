@@ -1367,6 +1367,22 @@ func (m *Manager) uploadThumbnailForMedia(media mmodels.Media, content []byte) e
 	return nil
 }
 
+// SendWelcomeReply sends the quick reply welcome message (with topic cards)
+// to a conversation. Used when reusing an existing conversation so the user
+// sees the welcome message and preset questions again.
+func (m *Manager) SendWelcomeReply(conversationUUID string) error {
+	conversation, err := m.GetConversation(0, conversationUUID, "")
+	if err != nil {
+		return fmt.Errorf("fetching conversation for welcome reply: %w", err)
+	}
+	if m.quickReply != nil {
+		if err := m.quickReply.SendWelcomeReply(conversation); err != nil {
+			return fmt.Errorf("sending welcome reply: %w", err)
+		}
+	}
+	return nil
+}
+
 // ProcessIncomingMessageHooks handles automation rules, webhooks, SLA events, and other post-processing
 // for incoming messages. This allows other channels to insert messages first and then call this
 // function to trigger the necessary hooks.

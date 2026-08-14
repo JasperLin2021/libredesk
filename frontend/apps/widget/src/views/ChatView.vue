@@ -70,6 +70,11 @@ const showPreChatForm = computed(() => {
     return false
   }
 
+  // If conversation data is already loaded (e.g., from "start new conversation"), skip the form
+  if (chatStore.getCurrentConversationMessages?.length > 0) {
+    return false
+  }
+
   const isAnonymous = !userStore.userSessionToken
   const isNewConversation = !!userStore.userSessionToken && !chatStore.currentConversation?.uuid
   return isAnonymous || isNewConversation
@@ -82,9 +87,31 @@ const isConversationClosed = computed(() => {
 })
 
 // Start a new conversation when current one is closed
-const startNewConversation = () => {
+const startNewConversation = async () => {
+  // Clear current conversation
   chatStore.setCurrentConversation(null)
   chatStore.clearMessages()
+
+  // Call initChatConversation to reopen closed conversation and send welcome message
+  // This ensures the user sees welcome message and preset questions immediately
+  try {
+    const resp = await api.initChatConversation({})
+    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+    conversation.business_hours_id = business_hours_id
+    conversation.working_hours_utc_offset = working_hours_utc_offset
+
+    if (!userStore.userSessionToken && session_token) {
+      saveSession(session_token, user, userStore, true)
+    }
+
+    chatStore.addConversationToList(conversation)
+    chatStore.setCurrentConversation(conversation)
+    chatStore.replaceMessages(messages || [])
+    preChatFormSubmitted.value = true
+  } catch (error) {
+    console.error('Error initializing conversation:', error)
+    errorMessage.value = handleHTTPError(error).message
+  }
 }
 
 const goBack = () => {

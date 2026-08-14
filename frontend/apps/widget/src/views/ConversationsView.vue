@@ -36,6 +36,7 @@ import { useWidgetStore } from '../store/widget.js'
 import { useUserStore } from '@widget/store/user.js'
 import ConversationsList from '../components/ConversationsList.vue'
 import WidgetHeader from '../layouts/WidgetHeader.vue'
+import api from '../api/index.js'
 
 const chatStore = useChatStore()
 const widgetStore = useWidgetStore()
@@ -45,23 +46,38 @@ const canStartNewConversation = computed(() => {
   const isVisitor = userStore.isVisitor
   if (isVisitor) {
     if (widgetStore.config?.visitors?.prevent_multiple_conversations) {
+      // Same user should always use the same conversation
       return !chatStore.hasConversations
     }
     return widgetStore.config?.visitors?.allow_start_conversation ?? true
   } else {
     if (widgetStore.config?.users?.prevent_multiple_conversations) {
+      // Same user should always use the same conversation
       return !chatStore.hasConversations
     }
     return widgetStore.config?.users?.allow_start_conversation ?? true
   }
 })
 
-const startNewConversation = () => {
-  // Clear current conversation
+const startNewConversation = async () => {
+  // Clear current conversation and messages
   chatStore.setCurrentConversation(null)
-  chatStore.clearMessages()
 
-  // Navigate directly to chat view
+  // Navigate to chat view first
   widgetStore.navigateToChat()
+
+  // Call initChatConversation to reopen closed conversation and send welcome message
+  // This ensures the user sees welcome message and preset questions immediately
+  try {
+    const resp = await api.initChatConversation({})
+    if (resp.data?.data?.conversation) {
+      chatStore.setCurrentConversation(resp.data.data.conversation)
+      chatStore.replaceMessages(resp.data.data.messages || [])
+      chatStore.isLoadingConversation = false
+    }
+  } catch (error) {
+    console.error('Error initializing conversation:', error)
+    chatStore.isLoadingConversation = false
+  }
 }
 </script>
