@@ -124,7 +124,7 @@ export function useWidget() {
       // from bixiaocrm auth, not a JWT that needs exchange.
       const api = window.Libredesk
       if (api && typeof api.setUser === 'function') {
-        api.setUser(sessionToken, true)
+        api.setUser(sessionToken, true, true)
       }
 
       isAuthenticated.value = true

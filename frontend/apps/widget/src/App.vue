@@ -86,6 +86,7 @@ const setupParentMessageListeners = () => {
         initVisitorToken(event.data.visitorToken)
       }
       const sessionToken = event.data.sessionToken
+      const isNewSession = event.data.isNewSession
       try {
         if (sessionToken) {
           userStore.setSessionToken(sessionToken)
@@ -103,7 +104,30 @@ const setupParentMessageListeners = () => {
             // 401 is handled by the global response interceptor.
           }
         }
-        await fetchInitialConversations()
+
+        if (isNewSession) {
+          // First-time Bixiao auth: clear anonymous state and call initChatConversation
+          // to trigger backend's create/reuse/reopen conversation logic.
+          chatStore.setCurrentConversation(null)
+          chatStore.conversations = null
+          chatStore.clearMessages()
+
+          try {
+            const resp = await api.initChatConversation({ skip_welcome: true })
+            const { conversation, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+            conversation.business_hours_id = business_hours_id
+            conversation.working_hours_utc_offset = working_hours_utc_offset
+
+            chatStore.addConversationToList(conversation)
+            chatStore.setCurrentConversation(conversation)
+            chatStore.replaceMessages(messages || [])
+          } catch (err) {
+            console.error('Failed to init conversation after auth:', err)
+          }
+          widgetStore.navigateToChat()
+        } else {
+          await fetchInitialConversations()
+        }
       } finally {
         signalWidgetLoaded()
       }

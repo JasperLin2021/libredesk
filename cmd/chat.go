@@ -82,8 +82,9 @@ type customAttributeWidget struct {
 }
 
 type chatInitReq struct {
-	Message  string         `json:"message"`
-	FormData map[string]any `json:"form_data"`
+	Message      string         `json:"message"`
+	FormData     map[string]any `json:"form_data"`
+	SkipWelcome  bool           `json:"skip_welcome"`
 }
 
 type chatSettingsResponse struct {
@@ -256,8 +257,12 @@ func handleChatInit(r *fastglue.Request) error {
 
 		// For reused conversations, send welcome reply so the user sees
 		// the welcome message and preset questions immediately.
-		if err := app.conversation.SendWelcomeReply(conversationUUID); err != nil {
-			app.lo.Error("error sending welcome reply for reused conversation", "conversation_uuid", conversationUUID, "error", err)
+		// Skip if the caller already received a welcome (e.g. from an
+		// earlier anonymous init in the same browser session).
+		if !req.SkipWelcome {
+			if err := app.conversation.SendWelcomeReply(conversationUUID); err != nil {
+				app.lo.Error("error sending welcome reply for reused conversation", "conversation_uuid", conversationUUID, "error", err)
+			}
 		}
 	} else {
 		// Check conversation permissions based on user type.
@@ -317,7 +322,10 @@ func handleChatInit(r *fastglue.Request) error {
 		}
 
 		// Process post-message hooks for the new conversation (welcome reply, webhooks, automation).
-		if err := app.conversation.ProcessIncomingMessageHooks(conversationUUID, true); err != nil {
+		// When skip_welcome is true, treat as non-new so hooks skip the welcome reply
+		// but still run webhooks and automation rules.
+		isNewConv := !req.SkipWelcome
+		if err := app.conversation.ProcessIncomingMessageHooks(conversationUUID, isNewConv); err != nil {
 			app.lo.Error("error processing incoming message hooks for new conversation", "conversation_uuid", conversationUUID, "error", err)
 		}
 	}
