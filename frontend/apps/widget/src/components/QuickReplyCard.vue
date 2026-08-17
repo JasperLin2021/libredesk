@@ -21,10 +21,11 @@
       <button
         v-if="transferKeyword"
         type="button"
-        class="mt-3 w-full text-left text-sm font-medium px-3 py-2 rounded-lg border transition-all duration-150 cursor-pointer border-secondary/40 bg-secondary/10 text-foreground hover:bg-secondary/20 hover:border-secondary/60"
+        class="mt-3 text-left text-sm font-medium px-3 py-2 rounded-lg border transition-all duration-150 cursor-pointer border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-300 inline-flex items-center gap-1.5"
         @click="sendQuickReply(transferKeyword)"
       >
-        {{ transferKeyword }}
+        <Headset class="w-4 h-4" />
+        <span>{{ transferKeyword }}</span>
       </button>
     </div>
   </div>
@@ -32,6 +33,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { Headset } from 'lucide-vue-next'
 import { useWidgetStore } from '../store/widget.js'
 import { useUserStore } from '../store/user.js'
 import { useChatStore } from '../store/chat.js'
