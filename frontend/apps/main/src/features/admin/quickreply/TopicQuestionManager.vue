@@ -33,57 +33,114 @@
             v-for="topic in topics"
             :key="topic.id"
             :class="[
-              'group flex items-center gap-1.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors',
+              'group rounded-lg border px-3 py-2 cursor-pointer transition-colors',
               topic.id === selectedTopicId ? 'border-primary bg-primary/5' : 'hover:bg-muted'
             ]"
             @click="selectedTopicId = topic.id"
           >
-            <button
-              type="button"
-              class="text-muted-foreground hover:text-foreground disabled:opacity-20"
-              :disabled="isFirst(topic)"
-              :title="$t('globals.terms.moveUp')"
-              @click.stop="moveTopic(topic, -1)"
-            >
-              <ChevronUp class="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              class="text-muted-foreground hover:text-foreground disabled:opacity-20"
-              :disabled="isLast(topic)"
-              :title="$t('globals.terms.moveDown')"
-              @click.stop="moveTopic(topic, 1)"
-            >
-              <ChevronDown class="w-4 h-4" />
-            </button>
-            <input
-              v-if="editingTopicId === topic.id"
-              v-model="editingTopicName"
-              type="text"
-              class="flex-1 min-w-0 text-sm bg-transparent outline-none border-b border-primary"
-              @keydown.enter="saveTopicName(topic)"
-              @keydown.esc="cancelTopicEdit"
-              @blur="saveTopicName(topic)"
-              @click.stop
-            />
-            <span v-else class="flex-1 min-w-0 truncate text-sm font-medium">{{ topic.name }}</span>
-            <span class="text-xs text-muted-foreground shrink-0">{{ topic.questions?.length || 0 }}</span>
-            <button
-              type="button"
-              class="text-muted-foreground hover:text-foreground shrink-0"
-              :title="$t('globals.terms.edit')"
-              @click.stop="startTopicEdit(topic)"
-            >
-              <Pencil class="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              class="text-muted-foreground hover:text-destructive shrink-0"
-              :title="$t('globals.terms.delete')"
-              @click.stop="openDeleteDialog('topic', topic)"
-            >
-              <Trash2 class="w-3.5 h-3.5" />
-            </button>
+            <div class="flex items-center gap-1.5">
+              <button
+                type="button"
+                class="text-muted-foreground hover:text-foreground disabled:opacity-20"
+                :disabled="isFirst(topic)"
+                :title="$t('globals.terms.moveUp')"
+                @click.stop="moveTopic(topic, -1)"
+              >
+                <ChevronUp class="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                class="text-muted-foreground hover:text-foreground disabled:opacity-20"
+                :disabled="isLast(topic)"
+                :title="$t('globals.terms.moveDown')"
+                @click.stop="moveTopic(topic, 1)"
+              >
+                <ChevronDown class="w-4 h-4" />
+              </button>
+              <span v-if="editingTopicId !== topic.id" class="flex-1 min-w-0 truncate text-sm font-medium">{{ topic.name }}</span>
+              <span class="text-xs text-muted-foreground shrink-0">{{ topic.questions?.length || 0 }}</span>
+              <button
+                type="button"
+                class="text-muted-foreground hover:text-foreground shrink-0"
+                :title="$t('globals.terms.edit')"
+                @click.stop="startTopicEdit(topic)"
+              >
+                <Pencil class="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                class="text-muted-foreground hover:text-destructive shrink-0"
+                :title="$t('globals.terms.delete')"
+                @click.stop="openDeleteDialog('topic', topic)"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <!-- Show aliases below the topic name (when not editing) -->
+            <div v-if="editingTopicId !== topic.id && topicNames(topic).length > 0" class="flex flex-wrap gap-1 mt-1.5 ml-9">
+              <span
+                v-for="(alias, idx) in topicNames(topic)"
+                :key="idx"
+                class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              >
+                {{ alias }}
+              </span>
+            </div>
+            <!-- Inline topic editor (name + aliases) -->
+            <div v-if="editingTopicId === topic.id" class="mt-2 space-y-2" @click.stop>
+              <div>
+                <Label class="text-xs text-muted-foreground mb-1 block">{{ $t('admin.quickReply.topicPrimaryName') }}</Label>
+                <Input
+                  v-model="editingTopicName"
+                  type="text"
+                  class="h-8 text-sm"
+                  :placeholder="$t('admin.quickReply.topicNamePlaceholder')"
+                  @keydown.esc="cancelTopicEdit"
+                />
+              </div>
+              <div>
+                <Label class="text-xs text-muted-foreground mb-1 block">{{ $t('admin.quickReply.topicAliases') }}</Label>
+                <div class="space-y-1.5">
+                  <div
+                    v-for="(alias, idx) in editingTopicAliases"
+                    :key="idx"
+                    class="flex items-center gap-1.5"
+                  >
+                    <Input
+                      v-model="editingTopicAliases[idx]"
+                      type="text"
+                      class="h-8 text-sm flex-1"
+                      :placeholder="$t('admin.quickReply.topicAliasPlaceholder')"
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="h-8 w-8 shrink-0 p-0 text-destructive"
+                      @click="removeAlias(idx)"
+                    >
+                      <X class="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-7 text-xs mt-1.5"
+                  @click="addAlias"
+                >
+                  <Plus class="w-3.5 h-3.5 mr-1" />
+                  {{ $t('admin.quickReply.addAlias') }}
+                </Button>
+              </div>
+              <div class="flex gap-2 pt-1">
+                <Button size="sm" class="h-7 text-xs" :disabled="topicSaving" @click="saveTopicEdit(topic)">
+                  {{ $t('globals.terms.save') }}
+                </Button>
+                <Button size="sm" variant="outline" class="h-7 text-xs" @click="cancelTopicEdit">
+                  {{ $t('globals.terms.cancel') }}
+                </Button>
+              </div>
+            </div>
           </div>
 
           <div v-if="topics.length === 0" class="text-sm text-muted-foreground py-6 text-center">
@@ -237,6 +294,7 @@ const newTopicName = ref('')
 const topicSaving = ref(false)
 const editingTopicId = ref(null)
 const editingTopicName = ref('')
+const editingTopicAliases = ref([])
 const deleteDialog = reactive({ open: false, type: 'topic', item: null })
 
 const selectedTopic = computed(() => topics.value.find((topic) => topic.id === selectedTopicId.value) || null)
@@ -303,27 +361,57 @@ const createTopic = async () => {
   }
 }
 
+// Returns the alias names (all names except the primary name).
+const topicNames = (topic) => {
+  const names = topic.names || []
+  // Skip the first element which is the primary name (same as topic.name).
+  return names.length > 1 ? names.slice(1) : []
+}
+
 const startTopicEdit = (topic) => {
   editingTopicId.value = topic.id
   editingTopicName.value = topic.name
+  // Populate aliases (all names except the primary).
+  const names = topic.names || []
+  editingTopicAliases.value = names.length > 1 ? names.slice(1).map((n) => n) : []
 }
 
 const cancelTopicEdit = () => {
   editingTopicId.value = null
   editingTopicName.value = ''
+  editingTopicAliases.value = []
 }
 
-const saveTopicName = async (topic) => {
+const addAlias = () => {
+  editingTopicAliases.value.push('')
+}
+
+const removeAlias = (idx) => {
+  editingTopicAliases.value.splice(idx, 1)
+}
+
+const saveTopicEdit = async (topic) => {
   if (editingTopicId.value !== topic.id) return
   const name = editingTopicName.value.trim()
-  editingTopicId.value = null
-  if (!name || name === topic.name) return
+  if (!name) return
+  topicSaving.value = true
   try {
-    const resp = await api.updateQuickReplyTopic(topic.id, { name, hint_message: topic.hint_message || '', sort_order: topic.sort_order })
-    topic.name = resp.data.data.name
+    const names = [name, ...editingTopicAliases.value.map((a) => a.trim()).filter(Boolean)]
+    const resp = await api.updateQuickReplyTopic(topic.id, {
+      name,
+      names,
+      hint_message: topic.hint_message || '',
+      sort_order: topic.sort_order
+    })
+    Object.assign(topic, resp.data.data)
+    editingTopicId.value = null
+    editingTopicName.value = ''
+    editingTopicAliases.value = []
     showSuccess()
   } catch (error) {
     showError(error)
+  } finally {
+    topicSaving.value = false
   }
 }
 
@@ -331,7 +419,7 @@ const saveHintMessage = async (topic) => {
   if (!topic || topic.__savingHint) return
   topic.__savingHint = true
   try {
-    const resp = await api.updateQuickReplyTopic(topic.id, { name: topic.name, hint_message: topic.hint_message || '', sort_order: topic.sort_order })
+    const resp = await api.updateQuickReplyTopic(topic.id, { name: topic.name, names: topic.names || [topic.name], hint_message: topic.hint_message || '', sort_order: topic.sort_order })
     topic.hint_message = resp.data.data.hint_message
     showSuccess()
   } catch (error) {
@@ -347,8 +435,8 @@ const moveTopic = async (topic, direction) => {
   if (swapIndex < 0 || swapIndex >= topics.value.length) return
   const other = topics.value[swapIndex]
   try {
-    await api.updateQuickReplyTopic(topic.id, { name: topic.name, hint_message: topic.hint_message || '', sort_order: other.sort_order })
-    await api.updateQuickReplyTopic(other.id, { name: other.name, hint_message: other.hint_message || '', sort_order: topic.sort_order })
+    await api.updateQuickReplyTopic(topic.id, { name: topic.name, names: topic.names || [topic.name], hint_message: topic.hint_message || '', sort_order: other.sort_order })
+    await api.updateQuickReplyTopic(other.id, { name: other.name, names: other.names || [other.name], hint_message: other.hint_message || '', sort_order: topic.sort_order })
     await loadTopics()
   } catch (error) {
     showError(error)

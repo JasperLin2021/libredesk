@@ -52,6 +52,7 @@ select
     id,
     inbox_id,
     name,
+    names,
     hint_message,
     sort_order
 from
@@ -67,6 +68,7 @@ select
     id,
     inbox_id,
     name,
+    names,
     hint_message,
     sort_order
 from
@@ -74,11 +76,26 @@ from
 where
     id = $1;
 
+-- name: get-topic-by-name
+select
+    id,
+    inbox_id,
+    name,
+    names,
+    hint_message,
+    sort_order
+from
+    quick_reply_topics
+where
+    inbox_id = $1
+    and names && ARRAY[$2::text]
+limit 1;
+
 -- name: insert-topic
 insert into
-    quick_reply_topics (inbox_id, name, hint_message, sort_order)
+    quick_reply_topics (inbox_id, name, names, hint_message, sort_order)
 values
-    ($1, $2, $3, $4)
+    ($1, $2, $3, $4, $5)
 returning
     *;
 
@@ -87,8 +104,9 @@ update
     quick_reply_topics
 set
     name = $2,
-    hint_message = $3,
-    sort_order = $4,
+    names = $3,
+    hint_message = $4,
+    sort_order = $5,
     updated_at = now()
 where
     id = $1

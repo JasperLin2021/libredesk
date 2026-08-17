@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/lib/pq"
+)
 
 // InboxQuickReplyConfig holds the automatic reply configuration for an inbox.
 type InboxQuickReplyConfig struct {
@@ -18,10 +22,14 @@ type InboxQuickReplyConfig struct {
 
 // QuickReplyTopic is a topic (category) under which quick reply questions
 // are grouped. Each topic belongs to an inbox.
+// Names stores all display names (aliases) for this topic. The first element
+// is the primary name; remaining elements are aliases. All names map to the
+// same set of questions.
 type QuickReplyTopic struct {
 	ID          int64                `db:"id" json:"id"`
 	InboxID     int64                `db:"inbox_id" json:"inbox_id"`
 	Name        string               `db:"name" json:"name"`
+	Names       pq.StringArray       `db:"names" json:"names"`
 	HintMessage string               `db:"hint_message" json:"hint_message"`
 	SortOrder   int                  `db:"sort_order" json:"sort_order"`
 	Questions   []QuickReplyQuestion `db:"-" json:"questions"`

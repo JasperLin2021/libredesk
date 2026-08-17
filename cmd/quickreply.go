@@ -93,9 +93,10 @@ func handleCreateQuickReplyTopic(r *fastglue.Request) error {
 	var (
 		app     = r.Context.(*App)
 		req     = struct {
-			Name        string `json:"name"`
-			HintMessage string `json:"hint_message"`
-			SortOrder   int    `json:"sort_order"`
+			Name        string   `json:"name"`
+			Names       []string `json:"names"`
+			HintMessage string   `json:"hint_message"`
+			SortOrder   int      `json:"sort_order"`
 		}{}
 		id, err = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
 	)
@@ -112,7 +113,12 @@ func handleCreateQuickReplyTopic(r *fastglue.Request) error {
 	if len(req.Name) > 500 {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.inputTooLong"), nil, envelope.InputError)
 	}
-	topic, err := app.quickReply.CreateTopic(id, req.Name, req.HintMessage, req.SortOrder)
+	// Build the names array: primary name first, then any aliases.
+	names := buildNames(req.Name, req.Names)
+	if err := validateNames(id, names, 0, app); err != nil {
+		return err
+	}
+	topic, err := app.quickReply.CreateTopic(id, req.Name, names, req.HintMessage, req.SortOrder)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}
@@ -124,9 +130,10 @@ func handleUpdateQuickReplyTopic(r *fastglue.Request) error {
 	var (
 		app     = r.Context.(*App)
 		req     = struct {
-			Name        string `json:"name"`
-			HintMessage string `json:"hint_message"`
-			SortOrder   int    `json:"sort_order"`
+			Name        string   `json:"name"`
+			Names       []string `json:"names"`
+			HintMessage string   `json:"hint_message"`
+			SortOrder   int      `json:"sort_order"`
 		}{}
 		id, err = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
 	)
@@ -143,11 +150,55 @@ func handleUpdateQuickReplyTopic(r *fastglue.Request) error {
 	if len(req.Name) > 500 {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.inputTooLong"), nil, envelope.InputError)
 	}
-	topic, err := app.quickReply.UpdateTopic(id, req.Name, req.HintMessage, req.SortOrder)
+	// Build the names array: primary name first, then any aliases.
+	names := buildNames(req.Name, req.Names)
+	// Fetch the existing topic to get its inbox ID for uniqueness validation.
+	existing, err := app.quickReply.GetTopic(id)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if err := validateNames(int(existing.InboxID), names, int64(id), app); err != nil {
+		return err
+	}
+	topic, err := app.quickReply.UpdateTopic(id, req.Name, names, req.HintMessage, req.SortOrder)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}
 	return r.SendEnvelope(topic)
+}
+
+// buildNames returns a deduplicated slice of names with the primary name as the
+// first element. Empty/whitespace-only aliases are discarded.
+func buildNames(primary string, aliases []string) []string {
+	seen := map[string]bool{primary: true}
+	names := []string{primary}
+	for _, a := range aliases {
+		a = strings.TrimSpace(a)
+		if a == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		names = append(names, a)
+	}
+	return names
+}
+
+// validateNames checks that every name is non-empty, within length limits, and
+// unique within the inbox.
+func validateNames(inboxID int, names []string, excludeID int64, app *App) error {
+	for _, n := range names {
+		if len(n) > 500 {
+			return envelope.NewError(envelope.InputError, app.i18n.T("validation.inputTooLong"), nil)
+		}
+		exists, err := app.quickReply.TopicNameExists(inboxID, n, excludeID)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return envelope.NewError(envelope.ConflictError, app.i18n.T("quickReply.topicNameExists"), nil)
+		}
+	}
+	return nil
 }
 
 // handleDeleteQuickReplyTopic deletes a topic and its questions.

@@ -6,6 +6,7 @@ package quickreply
 import (
 	"database/sql"
 	"embed"
+	"slices"
 	"strings"
 
 	cmodels "github.com/abhinavxd/libredesk/internal/conversation/models"
@@ -14,6 +15,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/quickreply/models"
 	"github.com/jmoiron/sqlx"
 	"github.com/knadh/go-i18n"
+	"github.com/lib/pq"
 	"github.com/zerodha/logf"
 )
 
@@ -59,6 +61,7 @@ type queries struct {
 	DeleteConfig   *sqlx.Stmt `query:"delete-config"`
 	GetTopics      *sqlx.Stmt `query:"get-topics"`
 	GetTopic       *sqlx.Stmt `query:"get-topic"`
+	GetTopicByName *sqlx.Stmt `query:"get-topic-by-name"`
 	InsertTopic    *sqlx.Stmt `query:"insert-topic"`
 	UpdateTopic    *sqlx.Stmt `query:"update-topic"`
 	DeleteTopic    *sqlx.Stmt `query:"delete-topic"`
@@ -167,9 +170,11 @@ func (m *Manager) GetTopic(id int) (models.QuickReplyTopic, error) {
 }
 
 // CreateTopic creates a new topic under the given inbox.
-func (m *Manager) CreateTopic(inboxID int, name, hintMessage string, sortOrder int) (models.QuickReplyTopic, error) {
+// names contains all display names (aliases) for the topic; the first element
+// is treated as the primary name.
+func (m *Manager) CreateTopic(inboxID int, name string, names []string, hintMessage string, sortOrder int) (models.QuickReplyTopic, error) {
 	var topic models.QuickReplyTopic
-	if err := m.q.InsertTopic.Get(&topic, inboxID, name, hintMessage, sortOrder); err != nil {
+	if err := m.q.InsertTopic.Get(&topic, inboxID, name, pq.Array(names), hintMessage, sortOrder); err != nil {
 		if dbutil.IsUniqueViolationError(err) {
 			return topic, envelope.NewError(envelope.ConflictError, m.i18n.T("errors.alreadyExistsQuickReplyTopic"), nil)
 		}
@@ -183,9 +188,11 @@ func (m *Manager) CreateTopic(inboxID int, name, hintMessage string, sortOrder i
 }
 
 // UpdateTopic updates a topic by ID.
-func (m *Manager) UpdateTopic(id int, name, hintMessage string, sortOrder int) (models.QuickReplyTopic, error) {
+// names contains all display names (aliases) for the topic; the first element
+// is treated as the primary name.
+func (m *Manager) UpdateTopic(id int, name string, names []string, hintMessage string, sortOrder int) (models.QuickReplyTopic, error) {
 	var topic models.QuickReplyTopic
-	if err := m.q.UpdateTopic.Get(&topic, id, name, hintMessage, sortOrder); err != nil {
+	if err := m.q.UpdateTopic.Get(&topic, id, name, pq.Array(names), hintMessage, sortOrder); err != nil {
 		if err == sql.ErrNoRows {
 			return topic, envelope.NewError(envelope.InputError, m.i18n.T("validation.notFoundQuickReplyTopic"), nil)
 		}
@@ -196,6 +203,35 @@ func (m *Manager) UpdateTopic(id int, name, hintMessage string, sortOrder int) (
 		return topic, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
 	}
 	return topic, nil
+}
+
+// GetTopicByName returns the topic that has the given name (or alias) within
+// the specified inbox.
+func (m *Manager) GetTopicByName(inboxID int, name string) (models.QuickReplyTopic, error) {
+	var topic models.QuickReplyTopic
+	if err := m.q.GetTopicByName.Get(&topic, inboxID, name); err != nil {
+		if err == sql.ErrNoRows {
+			return topic, envelope.NewError(envelope.InputError, m.i18n.T("validation.notFoundQuickReplyTopic"), nil)
+		}
+		m.lo.Error("error fetching quick reply topic by name", "error", err)
+		return topic, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return topic, nil
+}
+
+// TopicNameExists checks whether any topic in the given inbox already uses the
+// specified name (including aliases). excludeID can be set to skip a specific
+// topic (useful when updating).
+func (m *Manager) TopicNameExists(inboxID int, name string, excludeID int64) (bool, error) {
+	topic, err := m.GetTopicByName(inboxID, name)
+	if err != nil {
+		// If not found, no conflict.
+		return false, nil
+	}
+	if excludeID > 0 && topic.ID == excludeID {
+		return false, nil
+	}
+	return true, nil
 }
 
 // DeleteTopic deletes a topic and its questions by ID.
@@ -367,8 +403,8 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 		return nil, nil
 	}
 	for _, topic := range topics {
-		// Exact topic match: send the topic's question cards.
-		if topic.Name == content {
+		// Exact topic match against any of the topic's names (aliases).
+		if topicMatchesName(topic, content) {
 			msg, err := m.sendTopicQuestions(conversation, topic)
 			if err != nil {
 				return nil, err
@@ -462,6 +498,12 @@ func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg m
 		}
 	}
 	return nil
+}
+
+// topicMatchesName returns true if the given content matches any of the topic's
+// names (primary name or aliases).
+func topicMatchesName(topic models.QuickReplyTopic, content string) bool {
+	return slices.Contains(topic.Names, content) || topic.Name == content
 }
 
 // sendTopicQuestions sends the hint message and question cards of the given topic.

@@ -332,11 +332,12 @@ CREATE TABLE quick_reply_topics (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     inbox_id INT REFERENCES inboxes(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
     name TEXT NOT NULL,
+    names TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
     hint_message TEXT NOT NULL DEFAULT '请选择您想咨询的问题',
-    sort_order INT DEFAULT 0 NOT NULL,
-    CONSTRAINT constraint_quick_reply_topics_on_inbox_id_and_name UNIQUE (inbox_id, name)
+    sort_order INT DEFAULT 0 NOT NULL
 );
 CREATE INDEX index_quick_reply_topics_on_inbox_id ON quick_reply_topics (inbox_id);
+CREATE INDEX index_quick_reply_topics_on_names ON quick_reply_topics USING GIN (names);
 
 DROP TABLE IF EXISTS quick_reply_questions CASCADE;
 CREATE TABLE quick_reply_questions (
