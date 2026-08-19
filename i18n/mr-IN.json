@@ -157,6 +157,8 @@
   "admin.inbox.livechat.directToConversation.description": "होम स्क्रीन वगळा आणि वापरकर्त्याच्या नवीनतम संभाषणात थेट उघडा, किंवा नसल्यास नवीन संभाषण",
   "admin.inbox.livechat.externalLinks": "बाह्य लिंक",
   "admin.inbox.livechat.externalLinks.add": "बाह्य लिंक जोडा",
+  "admin.inbox.livechat.avatar": "विजेट अवतार",
+  "admin.inbox.livechat.avatar.description": "चॅट विजेटच्या शीर्षस्थानी दर्शविलेला अवतार. कस्टम अवतार अपलोड करण्यासाठी प्रतिमेवर क्लिक करा किंवा प्रतिमा URL पेस्ट करा. ब्रँड नावाचे पहिले अक्षर दर्शविण्यासाठी रिकामे ठेवा.",
   "admin.inbox.livechat.fallbackLanguage": "फॉलबॅक भाषा",
   "admin.inbox.livechat.fallbackLanguage.description": "व्हिजिटराच्या ब्राउझर भाषा उपलब्ध नसताना वापरावयाची भाषा",
   "admin.inbox.livechat.features.emoji": "इमोजी समर्थन",

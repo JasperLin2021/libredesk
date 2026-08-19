@@ -27,7 +27,7 @@
                 <div
                   class="size-10 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center overflow-hidden shrink-0"
                 >
-                  <img :src="launcherLogo" alt="" class="w-full h-full object-cover" />
+                  <img :src="widgetAvatar" alt="" class="w-full h-full object-cover" />
                 </div>
                 <div class="flex flex-col">
                   <h3 class="text-base font-bold leading-tight">
@@ -282,7 +282,7 @@
                       <div
                         class="size-10 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center overflow-hidden shrink-0"
                       >
-                        <img :src="launcherLogo" alt="" class="w-full h-full object-cover" />
+                        <img :src="widgetAvatar" alt="" class="w-full h-full object-cover" />
                       </div>
                       <div class="flex-1 min-w-0">
                         <div class="text-sm font-medium text-foreground mb-0.5">
@@ -416,6 +416,11 @@ const parsedIntroduction = computed(() =>
 )
 
 const launcherLogo = computed(() => props.config.launcher?.logo_url || DEFAULT_LAUNCHER_LOGO)
+
+// Chat header / conversation avatar: prefers the dedicated avatar, falls back to the launcher logo.
+const widgetAvatar = computed(
+  () => props.config.avatar_url || props.config.launcher?.logo_url || DEFAULT_LAUNCHER_LOGO
+)
 
 const replyExpectation = computed(() =>
   props.config.show_office_hours_in_chat ? props.config.chat_reply_expectation_message : ''

@@ -157,6 +157,8 @@
   "admin.inbox.livechat.directToConversation.description": "از صفحه خانه رد شوید و مستقیماً به آخرین مکالمه کاربر، یا یک مکالمه جدید اگر وجود نداشته باشد، باز شوید",
   "admin.inbox.livechat.externalLinks": "لینک‌های خارجی",
   "admin.inbox.livechat.externalLinks.add": "افزودن لینک خارجی",
+  "admin.inbox.livechat.avatar": "آواتار ویجت",
+  "admin.inbox.livechat.avatar.description": "آواتاری که در بالای ویجت چت نمایش داده می‌شود. برای آپلود آواتار سفارشی روی تصویر کلیک کنید یا URL تصویر را جای‌گذاری کنید. برای نمایش حرف اول نام برند، این فیلد را خالی بگذارید.",
   "admin.inbox.livechat.fallbackLanguage": "زبان جایگزین",
   "admin.inbox.livechat.fallbackLanguage.description": "زبانی که در صورت عدم دسترسی به زبان مرورگر بازدیدکننده استفاده می‌شود",
   "admin.inbox.livechat.features.emoji": "پشتیبانی ایموجی",

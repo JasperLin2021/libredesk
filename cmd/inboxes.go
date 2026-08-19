@@ -286,7 +286,7 @@ func validateInbox(app *App, inbox imodels.Inbox) error {
 			}
 
 			// Validate URLs if set.
-			for _, u := range []string{config.LogoURL, config.Launcher.LogoURL, config.WebsiteURL} {
+			for _, u := range []string{config.LogoURL, config.AvatarURL, config.Launcher.LogoURL, config.WebsiteURL} {
 				if u != "" && !httputil.IsValidHTTPURL(u) {
 					return envelope.NewError(envelope.InputError, app.i18n.T("validation.invalidUrl"), nil)
 				}

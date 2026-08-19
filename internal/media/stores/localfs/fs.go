@@ -29,6 +29,13 @@ type Client struct {
 
 // New initialises store for Filesystem provider.
 func New(opts Opts) (media.Store, error) {
+	dir := getDir(opts.UploadPath)
+	// Ensure the upload directory exists before storing any files. This also
+	// covers relative upload_paths (e.g. "uploads") where the directory may
+	// not have been created yet.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("creating upload directory %q: %w", dir, err)
+	}
 	return &Client{
 		opts: opts,
 	}, nil
@@ -38,8 +45,12 @@ func New(opts Opts) (media.Store, error) {
 func (c *Client) Put(filename string, cType string, src io.ReadSeeker) (string, error) {
 	var out *os.File
 
-	// Get the directory path
+	// Get the directory path and ensure it exists (e.g. re-created after being
+	// deleted at runtime, or when the working directory changed).
 	dir := getDir(c.opts.UploadPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating upload directory %q: %w", dir, err)
+	}
 	o, err := os.OpenFile(filepath.Join(dir, filename), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0664)
 	if err != nil {
 		return "", fmt.Errorf("opening file for write %q: %w", filepath.Join(dir, filename), err)

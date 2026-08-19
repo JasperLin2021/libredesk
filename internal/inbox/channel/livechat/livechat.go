@@ -87,8 +87,9 @@ type Config struct {
 		Position string `json:"position"`
 		Color    string `json:"color"`
 	} `json:"launcher"`
-	LogoURL  string `json:"logo_url"`
-	Visitors struct {
+	LogoURL    string `json:"logo_url"`
+	AvatarURL  string `json:"avatar_url"`
+	Visitors   struct {
 		AllowStartConversation           bool   `json:"allow_start_conversation"`
 		PreventMultipleConversations     bool   `json:"prevent_multiple_conversations"`
 		PreventReplyToClosedConversation bool   `json:"prevent_reply_to_closed_conversation"`

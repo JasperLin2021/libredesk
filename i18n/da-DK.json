@@ -157,6 +157,8 @@
   "admin.inbox.livechat.directToConversation.description": "Spring startskærmen over og åbn direkte i brugerens seneste samtale, eller en ny samtale hvis ingen eksisterer",
   "admin.inbox.livechat.externalLinks": "Eksterne links",
   "admin.inbox.livechat.externalLinks.add": "Tilføj eksternt link",
+  "admin.inbox.livechat.avatar": "Widget-avatar",
+  "admin.inbox.livechat.avatar.description": "Avatar vist øverst i chat-widget'en. Klik på billedet for at uploade en tilpasset avatar, eller indsæt en billed-URL. Efterlad tomt for at vise det første bogstav i brandnavnet.",
   "admin.inbox.livechat.fallbackLanguage": "Reservesprog",
   "admin.inbox.livechat.fallbackLanguage.description": "Sprog der bruges, når besøgendes browsersprog ikke er tilgængeligt",
   "admin.inbox.livechat.features.emoji": "Emoji-understøttelse",

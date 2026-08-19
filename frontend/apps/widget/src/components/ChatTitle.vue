@@ -126,7 +126,7 @@ const chatTitle = computed(() => {
   // Default brand values
   return {
     name: config.brand_name,
-    avatarUrl: config.launcher?.logo_url || '',
+    avatarUrl: config.avatar_url || config.launcher?.logo_url || '',
     avatarFallback: config.brand_name.charAt(0).toUpperCase(),
     availability_status: null,
     hasAssignee: false

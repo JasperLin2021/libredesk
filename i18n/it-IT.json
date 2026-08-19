@@ -157,6 +157,8 @@
   "admin.inbox.livechat.directToConversation.description": "Salta la schermata home e apri direttamente l'ultima conversazione dell'utente, o una nuova conversazione se non ne esiste nessuna",
   "admin.inbox.livechat.externalLinks": "Link esterni",
   "admin.inbox.livechat.externalLinks.add": "Aggiungi link esterno",
+  "admin.inbox.livechat.avatar": "Avatar del widget",
+  "admin.inbox.livechat.avatar.description": "Avatar visualizzato nella parte superiore del widget di chat. Fai clic sull'immagine per caricare un avatar personalizzato oppure incolla un URL dell'immagine. Lascia vuoto per mostrare la prima lettera del nome del brand.",
   "admin.inbox.livechat.fallbackLanguage": "Lingua di riserva",
   "admin.inbox.livechat.fallbackLanguage.description": "Lingua da utilizzare quando la lingua del browser del visitatore non è disponibile",
   "admin.inbox.livechat.features.emoji": "Supporto emoji",

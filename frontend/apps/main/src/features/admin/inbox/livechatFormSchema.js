@@ -26,6 +26,7 @@ export const createFormSchema = (t) => z.object({
     language: z.string().min(1, { message: t('globals.messages.required') }),
     fallback_language: z.string().optional(),
     logo_url: optionalUrl(t),
+    avatar_url: optionalUrl(t),
     launcher: z.object({
       position: z.enum(['left', 'right']),
       logo_url: optionalUrl(t),

@@ -157,6 +157,8 @@
   "admin.inbox.livechat.directToConversation.description": "ホーム画面をスキップして、ユーザーの最新の会話に直接移動します。会話がない場合は新しい会話を開始します",
   "admin.inbox.livechat.externalLinks": "外部リンク",
   "admin.inbox.livechat.externalLinks.add": "外部リンクを追加",
+  "admin.inbox.livechat.avatar": "ウィジェットのアバター",
+  "admin.inbox.livechat.avatar.description": "チャットウィジェットの上部に表示されるアバターです。画像をクリックしてカスタムアバターをアップロードするか、画像 URL を貼り付けます。空のままにするとブランド名の最初の文字が表示されます。",
   "admin.inbox.livechat.fallbackLanguage": "フォールバック言語",
   "admin.inbox.livechat.fallbackLanguage.description": "訪問者のブラウザ言語が利用できない場合に使用する言語",
   "admin.inbox.livechat.features.emoji": "絵文字サポート",

@@ -169,6 +169,8 @@
   "admin.inbox.livechat.directToConversation.description": "跳过主屏幕，直接打开用户最近的会话，或如果不存在则打开新会话",
   "admin.inbox.livechat.externalLinks": "外部链接",
   "admin.inbox.livechat.externalLinks.add": "添加外部链接",
+  "admin.inbox.livechat.avatar": "Widget 头像",
+  "admin.inbox.livechat.avatar.description": "显示在聊天组件顶部的头像。点击图片可上传自定义头像，或粘贴图片 URL。留空则显示品牌名称的首字母。",
   "admin.inbox.livechat.fallbackLanguage": "后备语言",
   "admin.inbox.livechat.fallbackLanguage.description": "当访客的浏览器语言不可用时使用的语言。",
   "admin.inbox.livechat.features.emoji": "表情符号支持",

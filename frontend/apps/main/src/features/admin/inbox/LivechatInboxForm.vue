@@ -205,6 +205,33 @@
             </FormItem>
           </FormField>
 
+          <FormField v-slot="{ componentField }" name="config.avatar_url">
+            <FormItem>
+              <FormLabel>Logo</FormLabel>
+              <div class="flex items-start gap-4">
+                <AvatarUpload
+                  :src="componentField.modelValue"
+                  :initials="avatarInitials"
+                  :label="$t('globals.messages.upload')"
+                  :disabled="isLoading || avatarUploading"
+                  @upload="onAvatarUpload"
+                  @remove="onAvatarRemove"
+                />
+                <div class="flex-1 space-y-2">
+                  <FormControl>
+                    <Input
+                      type="url"
+                      placeholder="https://example.com/avatar.png"
+                      v-bind="componentField"
+                    />
+                  </FormControl>
+                  <FormDescription>{{ $t('admin.inbox.livechat.avatar.description') }}</FormDescription>
+                </div>
+              </div>
+              <FormMessage />
+            </FormItem>
+          </FormField>
+
           <FormField v-slot="{ componentField, handleChange }" name="config.dark_mode">
             <FormItem>
               <SwitchField
@@ -1013,6 +1040,9 @@ import { useEmitter } from '@/composables/useEmitter'
 import { EMITTER_EVENTS } from '@/constants/emitterEvents'
 import CopyButton from '@/components/button/CopyButton.vue'
 import CodeEditor from '@/components/editor/CodeEditor.vue'
+import { AvatarUpload } from '@shared-ui/components/ui/avatar'
+import api from '@/api'
+import { handleHTTPError } from '@shared-ui/utils/http.js'
 import { contrastRatio } from '@shared-ui/utils/color'
 
 // Warn only when a color is nearly indistinguishable from what it sits on; merely-low
@@ -1170,6 +1200,7 @@ const form = useForm({
       language: 'en-US',
       fallback_language: 'en-US',
       logo_url: '',
+      avatar_url: '',
       launcher: {
         position: 'right',
         logo_url: '',
@@ -1283,6 +1314,33 @@ const previewConfig = computed(() => ({
   ...form.values.config,
   home_apps: homeApps.value
 }))
+
+const avatarUploading = ref(false)
+const avatarInitials = computed(() => {
+  const name = form.values.config?.brand_name?.trim() || form.values.name?.trim() || 'L'
+  return name.charAt(0).toUpperCase() || 'L'
+})
+
+const onAvatarUpload = async (file) => {
+  if (!file) return
+  avatarUploading.value = true
+  try {
+    const resp = await api.uploadMedia({ files: file })
+    const media = resp.data.data
+    form.setFieldValue('config.avatar_url', media.url || '')
+  } catch (error) {
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      variant: 'destructive',
+      description: handleHTTPError(error).message
+    })
+  } finally {
+    avatarUploading.value = false
+  }
+}
+
+const onAvatarRemove = () => {
+  form.setFieldValue('config.avatar_url', '')
+}
 
 // InboxView renders the preview in the help rail; feed it this form's live config while mounted.
 const livechatPreview = inject('livechatPreview', null)

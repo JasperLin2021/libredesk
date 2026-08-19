@@ -143,6 +143,8 @@
   "admin.inbox.livechat.directToConversation.description": "Startbildschirm überspringen und direkt zur letzten Konversation des Benutzers oder einer neuen Konversation öffnen, falls keine existiert",
   "admin.inbox.livechat.externalLinks": "Externe Links",
   "admin.inbox.livechat.externalLinks.add": "Externen Link hinzufügen",
+  "admin.inbox.livechat.avatar": "Widget-Avatar",
+  "admin.inbox.livechat.avatar.description": "Avatar, der oben im Chat-Widget angezeigt wird. Klicken Sie auf das Bild, um einen benutzerdefinierten Avatar hochzuladen, oder fügen Sie eine Bild-URL ein. Leer lassen, um den ersten Buchstaben des Markennamens anzuzeigen.",
   "admin.inbox.livechat.fallbackLanguage": "Ersatzsprache",
   "admin.inbox.livechat.features.emoji": "Emoji-Unterstützung",
   "admin.inbox.livechat.features.emoji.description": "Benutzern erlauben, Emojis im Chat zu verwenden",

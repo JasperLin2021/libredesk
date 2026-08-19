@@ -323,6 +323,8 @@
   "admin.inbox.livechat.directToConversation.description": "Skip the home screen and open directly into the user's latest conversation, or a new conversation if none exists",
   "admin.inbox.livechat.externalLinks": "External links",
   "admin.inbox.livechat.externalLinks.add": "Add external link",
+  "admin.inbox.livechat.avatar": "Widget avatar",
+  "admin.inbox.livechat.avatar.description": "Avatar displayed at the top of the chat widget. Click the image to upload a custom avatar, or paste an image URL. Leave empty to show the first letter of the brand name.",
   "admin.inbox.livechat.fallbackLanguage": "Fallback language",
   "admin.inbox.livechat.fallbackLanguage.description": "Language to use when visitor's browser language is not available.",
   "admin.inbox.livechat.features.emoji": "Emoji support",
