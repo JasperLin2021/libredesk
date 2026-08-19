@@ -25,6 +25,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/stringutil"
 	umodels "github.com/abhinavxd/libredesk/internal/user/models"
 	realip "github.com/ferluci/fast-realip"
+	"github.com/google/uuid"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/valyala/fasthttp"
 	"github.com/volatiletech/null/v9"
@@ -85,6 +86,7 @@ type chatInitReq struct {
 	Message      string         `json:"message"`
 	FormData     map[string]any `json:"form_data"`
 	SkipWelcome  bool           `json:"skip_welcome"`
+	VisitorToken string         `json:"visitor_token"`
 }
 
 type chatSettingsResponse struct {
@@ -188,6 +190,7 @@ func handleChatInit(r *fastglue.Request) error {
 		newSessionToken   string
 		conversationAttrs map[string]any
 		visitor           umodels.User
+		visitorToken      string
 	)
 
 	if err := r.Decode(&req, "json"); err != nil {
@@ -218,10 +221,46 @@ func handleChatInit(r *fastglue.Request) error {
 		// Only process form-level attributes here.
 		isVisitor = getWidgetIsVisitor(r)
 		conversationAttrs = saveContactAttrsAndCollectConvoAttrs(app, contactID, nil, req.FormData, config)
-	} else {
-		// New visitor - create visitor and session token.
+	} else if req.VisitorToken != "" {
+		// No session token but visitor token provided – try to identify returning visitor.
+		// First try Redis session (fast path).
+		visitorSession, vErr := loadSession(app, req.VisitorToken, config)
+		if vErr == nil && visitorSession.IsVisitor && visitorSession.UserID > 0 && visitorSession.InboxID == inbox.ID {
+			// Returning visitor – reuse existing contact.
+			contactID = visitorSession.UserID
+			isVisitor = true
+			conversationAttrs = saveContactAttrsAndCollectConvoAttrs(app, contactID, nil, req.FormData, config)
+			app.lo.Info("reusing returning visitor via Redis session", "visitor_id", contactID)
+		} else {
+			// Redis session lost (e.g., Redis restart) – fallback to database lookup.
+			dbVisitor, dbErr := app.user.GetVisitorByToken(req.VisitorToken)
+			if dbErr == nil && dbVisitor.ID > 0 {
+				contactID = dbVisitor.ID
+				isVisitor = true
+				visitorToken = req.VisitorToken
+				conversationAttrs = saveContactAttrsAndCollectConvoAttrs(app, contactID, nil, req.FormData, config)
+				// Create a new session token since the Redis session is gone.
+				newSessionToken, err = generateSessionToken(app, contactID, inbox.ID, true, "", defaultSessionTTL)
+				if err != nil {
+					app.lo.Error("error generating session token for returning visitor", "error", err)
+					return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+				}
+				visitor = dbVisitor
+				app.lo.Info("reusing returning visitor via DB lookup", "visitor_id", contactID)
+			}
+		}
+	}
+
+	// If still no contactID, create a new visitor.
+	if contactID == 0 {
 		isVisitor = true
-		visitor, newSessionToken, conversationAttrs, err = createVisitorContact(app, req.FormData, config, inbox)
+		// Use the provided visitor token or generate a new one so the visitor
+		// can be identified on subsequent visits (e.g. after Ctrl+F5).
+		visitorToken = req.VisitorToken
+		if visitorToken == "" {
+			visitorToken = uuid.New().String()
+		}
+		visitor, newSessionToken, conversationAttrs, err = createVisitorContact(app, req.FormData, config, inbox, visitorToken)
 		if err != nil {
 			app.lo.Error("error creating visitor contact", "error", err)
 			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
@@ -235,6 +274,26 @@ func handleChatInit(r *fastglue.Request) error {
 	if err != nil {
 		app.lo.Error("error fetching existing conversations", "contact_id", contactID, "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+	}
+
+	// If no conversations found for authenticated contact, try to find visitor conversations
+	// via visitor token and merge them to the contact.
+	if len(existingConversations) == 0 && contactID > 0 && req.VisitorToken != "" {
+		visitorSession, vErr := loadSession(app, req.VisitorToken, config)
+		if vErr == nil && visitorSession.IsVisitor && visitorSession.UserID > 0 && visitorSession.UserID != contactID && visitorSession.InboxID == inbox.ID {
+			// Merge visitor conversations to contact.
+			if err := app.user.MergeVisitorToContact(visitorSession.UserID, contactID); err != nil {
+				app.lo.Error("error merging visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", contactID, "error", err)
+			} else {
+				app.lo.Info("merged visitor to contact in chat init", "visitor_id", visitorSession.UserID, "contact_id", contactID)
+				deleteSessionToken(app, req.VisitorToken)
+				// Re-fetch conversations after merge.
+				existingConversations, err = app.conversation.GetContactChatConversations(contactID, inbox.ID)
+				if err != nil {
+					app.lo.Error("error fetching conversations after merge", "contact_id", contactID, "error", err)
+				}
+			}
+		}
 	}
 
 	var conversationUUID string
@@ -364,6 +423,7 @@ func handleChatInit(r *fastglue.Request) error {
 	// Add session token and user metadata when a new visitor is created.
 	if newSessionToken != "" {
 		response["session_token"] = newSessionToken
+		response["visitor_token"] = visitorToken
 		response["user"] = map[string]any{
 			"user_id":    contactID,
 			"is_visitor": isVisitor,
@@ -960,7 +1020,7 @@ func resolveOrCreateExternalContact(app *App, claims Claims) (int, error) {
 }
 
 // createVisitorContact creates a new visitor contact from form data.
-func createVisitorContact(app *App, formData map[string]any, config livechat.Config, inbox imodels.Inbox) (umodels.User, string, map[string]any, error) {
+func createVisitorContact(app *App, formData map[string]any, config livechat.Config, inbox imodels.Inbox, visitorToken string) (umodels.User, string, map[string]any, error) {
 	// Validate form data and get final name/email/phone for new visitor.
 	finalName, finalEmail, finalPhone, finalPhoneCountryCode, err := validateFormData(formData, config, nil)
 	if err != nil {
@@ -978,7 +1038,7 @@ func createVisitorContact(app *App, formData map[string]any, config livechat.Con
 		CustomAttributes:       marshalCustomAttributes(formContactAttrs, app),
 	}
 
-	if err := app.user.CreateVisitor(&visitor); err != nil {
+	if err := app.user.CreateVisitor(&visitor, visitorToken); err != nil {
 		app.lo.Error("error creating visitor contact", "error", err)
 		return umodels.User{}, "", nil, err
 	}

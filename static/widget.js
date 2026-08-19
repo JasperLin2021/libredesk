@@ -46,6 +46,7 @@
             this._onUnreadCountChangeCallback = null;
             this._boundHandleMessage = (e) => this.handleMessage(e);
             this._boundHandleResize = () => this.handleResize();
+            this.sessions = {}; // Track initialized instances to determine isNewSession
             this.init();
         }
 
@@ -446,7 +447,8 @@
                 this.postToIframe({
                     type: 'SET_JWT_TOKEN',
                     jwt: this.config.userJWT,
-                    visitorToken: visitorToken || ''
+                    visitorToken: visitorToken || '',
+                    isNewSession: true
                 });
                 return;
             }
@@ -455,7 +457,8 @@
             this.postToIframe({
                 type: 'SESSION_DATA',
                 sessionToken: sessionToken || '',
-                visitorToken: visitorToken || ''
+                visitorToken: visitorToken || '',
+                isNewSession: !sessionToken && !visitorToken
             });
         }
 

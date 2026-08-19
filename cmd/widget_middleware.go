@@ -98,9 +98,10 @@ func widgetAuth(next func(*fastglue.Request) error) func(*fastglue.Request) erro
 		}
 
 		authHeader := string(r.RequestCtx.Request.Header.Peek("Authorization"))
+		isInitEndpoint := strings.HasSuffix(string(r.RequestCtx.Path()), "/conversations/init")
 
 		// For init endpoint, allow requests without token (visitor creation).
-		if authHeader == "" && strings.HasSuffix(string(r.RequestCtx.Path()), "/conversations/init") {
+		if authHeader == "" && isInitEndpoint {
 			return next(r)
 		}
 
@@ -111,6 +112,11 @@ func widgetAuth(next func(*fastglue.Request) error) func(*fastglue.Request) erro
 
 		session, err := loadSession(app, token, config)
 		if err != nil {
+			// Session expired/invalid. For init endpoint, allow request through
+			// so handleChatInit can try visitor_token DB fallback.
+			if isInitEndpoint {
+				return next(r)
+			}
 			return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, app.i18n.T("globals.terms.unAuthorized"), nil, envelope.UnauthorizedError)
 		}
 

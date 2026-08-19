@@ -20,10 +20,11 @@ const bixiaocrmAPIURL = "https://api-app.bixiaocrm.com/personnel/index.json"
 
 // bixiaoAuthRequest is the request body from the widget.
 type bixiaoAuthRequest struct {
-	Token      string `json:"token"`
-	Device     string `json:"device"`
-	VersionSeq string `json:"version_seq"`
-	Inbox      string `json:"inbox"`
+	Token        string `json:"token"`
+	Device       string `json:"device"`
+	VersionSeq   string `json:"version_seq"`
+	Inbox        string `json:"inbox"`
+	VisitorToken string `json:"visitor_token"`
 }
 
 // bixiaoUserResponse is the response from bixiaocrm's personnel API.
@@ -111,6 +112,21 @@ func handleBixiaoAuth(r *fastglue.Request) error {
 	// Store external_user_id as well for reverse lookup.
 	if err := app.user.SaveCustomAttributes(contactID, map[string]any{"external_user_id": bixiaoUser.TlID}, false); err != nil {
 		app.lo.Error("error saving external_user_id in custom attributes", "contact_id", contactID, "error", err)
+	}
+
+	// Merge visitor to contact if visitor token is provided.
+	if req.VisitorToken != "" {
+		visitorSession, vErr := loadSession(app, req.VisitorToken, config)
+		if vErr == nil && visitorSession.IsVisitor && visitorSession.UserID > 0 && visitorSession.UserID != contactID && visitorSession.InboxID == inbox.ID {
+			if err := app.user.MergeVisitorToContact(visitorSession.UserID, contactID); err != nil {
+				app.lo.Error("error merging visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", contactID, "error", err)
+			} else {
+				app.lo.Info("merged visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", contactID)
+				deleteSessionToken(app, req.VisitorToken)
+				// Signal frontend to clear visitor token cookie.
+				r.RequestCtx.Response.Header.Set(hdrClearVisitorToken, "true")
+			}
+		}
 	}
 
 	// Generate session token.

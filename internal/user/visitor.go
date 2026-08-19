@@ -9,7 +9,7 @@ import (
 )
 
 // CreateVisitor creates a new visitor user.
-func (u *Manager) CreateVisitor(user *models.User) error {
+func (u *Manager) CreateVisitor(user *models.User, visitorToken string) error {
 	// Normalize email address.
 	user.Email = null.NewString(strings.ToLower(user.Email.String), user.Email.Valid)
 
@@ -21,11 +21,20 @@ func (u *Manager) CreateVisitor(user *models.User) error {
 		}
 	}
 
-	if err := u.q.InsertVisitor.Get(user, user.Email, user.FirstName, user.LastName, user.CustomAttributes, user.PhoneNumber, user.PhoneNumberCountryCode); err != nil {
+	if err := u.q.InsertVisitor.Get(user, user.Email, user.FirstName, user.LastName, user.CustomAttributes, user.PhoneNumber, user.PhoneNumberCountryCode, visitorToken); err != nil {
 		u.lo.Error("error inserting contact", "error", err)
 		return fmt.Errorf("insert contact: %w", err)
 	}
 	return nil
+}
+
+// GetVisitorByToken retrieves a visitor user by their visitor token.
+func (u *Manager) GetVisitorByToken(token string) (models.User, error) {
+	var user models.User
+	if err := u.q.GetVisitorByToken.Get(&user, token); err != nil {
+		return user, err
+	}
+	return user, nil
 }
 
 // GetVisitor retrieves a visitor user by ID

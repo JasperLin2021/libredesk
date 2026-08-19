@@ -41,6 +41,7 @@ import { useUserStore } from '../store/user.js'
 import { useChatStore } from '../store/chat.js'
 import { handleHTTPError } from '@shared-ui/utils/http.js'
 import api, { saveSession } from '@widget/api/index.js'
+import { waitForAppInit } from '../state.js'
 import WidgetError from '@widget/components/WidgetError.vue'
 import ChatHeader from '@widget/components/ChatHeader.vue'
 import ChatMessages from '@widget/components/ChatMessages.vue'
@@ -86,14 +87,14 @@ const isConversationClosed = computed(() => {
   return status === 'Closed'
 })
 
-// Start a new conversation when current one is closed
+// Reopen the closed conversation (reuse the same conversation)
 const startNewConversation = async () => {
   // Clear current conversation
   chatStore.setCurrentConversation(null)
   chatStore.clearMessages()
 
-  // Call initChatConversation to reopen closed conversation and send welcome message
-  // This ensures the user sees welcome message and preset questions immediately
+  // Call initChatConversation to reopen the closed conversation
+  // Backend will reuse the same conversation and set status to open
   try {
     const resp = await api.initChatConversation({})
     const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
@@ -129,8 +130,15 @@ const handleError = (message) => {
 
 // Auto-init conversation on mount to fetch welcome messages
 onMounted(async () => {
+  // Wait for App.vue's fetchInitialConversations to complete (if running).
+  // This prevents duplicate initChatConversation calls (race condition).
+  await waitForAppInit()
+
+  // If App.vue already loaded a conversation, no need to init again.
+  if (chatStore.currentConversation?.uuid) return
+
   // Only auto-init if no current conversation and not already initializing
-  if (!chatStore.currentConversation?.uuid && !isInitializing.value) {
+  if (!isInitializing.value) {
     await initConversationForWelcome()
   }
 })

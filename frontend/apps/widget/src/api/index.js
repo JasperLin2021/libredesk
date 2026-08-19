@@ -42,16 +42,15 @@ export function registerStores (stores) {
     _stores = stores
 }
 
-// Clears all session state, cookies, and closes widget on 401/session expiry.
+// Clears session state on 401/session expiry.
+// Does NOT clear visitor token or close widget — the caller may
+// recover the session via visitor_token fallback.
 function handleSessionExpired () {
     if (!_stores) return
-    const { userStore, chatStore, widgetStore } = _stores
+    const { userStore, chatStore } = _stores
     userStore.clearSessionToken()
-    clearVisitorToken()
-    postToParent({ type: 'CLEAR_SESSION_TOKEN' })
     chatStore.setCurrentConversation(null)
     chatStore.conversations = null
-    widgetStore.closeWidget()
 }
 
 // Saves session token and user metadata from a server response.

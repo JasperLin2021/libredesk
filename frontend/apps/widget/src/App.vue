@@ -17,12 +17,19 @@ import { computed, onMounted, watch, getCurrentInstance } from 'vue'
 import { useWidgetStore } from './store/widget.js'
 import { useChatStore } from '@widget/store/chat.js'
 import { useUserStore } from './store/user.js'
-import { initWidgetWS, closeWidgetWebSocket, sendPageVisit, skipInitialWsSync } from './websocket.js'
-import api, { setApiSessionToken, initVisitorToken, saveSession, registerStores } from '@widget/api/index.js'
+import { initWidgetWS, closeWidgetWebSocket, sendPageVisit } from './websocket.js'
+import api, { setApiSessionToken, setVisitorToken, initVisitorToken, getVisitorToken, saveSession, registerStores } from '@widget/api/index.js'
 import { useUnreadCount } from './composables/useUnreadCount.js'
 import { initAudioContext } from '@shared-ui/composables/useNotificationSound.js'
 import { hexToHSL, getContrastingHSL } from '@shared-ui/utils/color.js'
+import { resolveInit } from './state.js'
 import MainLayout from '@widget/layouts/MainLayout.vue'
+
+// Helper to read cookies (mirrors widget.js getCookie)
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'))
+  return match ? decodeURIComponent(match[1]) : null
+}
 
 const widgetStore = useWidgetStore()
 const chatStore = useChatStore()
@@ -58,16 +65,63 @@ const signalWidgetLoaded = () => {
   window.parent.postMessage({ type: 'WIDGET_LOADED' }, '*')
 }
 
-const fetchInitialConversations = async () => {
+// Helper: init conversation via visitor_token (used by both fresh visitor path and session-expiry fallback).
+const initViaVisitorToken = async (isReturningVisitor) => {
+  try {
+    const initPayload = isReturningVisitor ? { skip_welcome: true } : {}
+    const visitorToken = getVisitorToken()
+    if (visitorToken) {
+      initPayload.visitor_token = visitorToken
+    }
+    const resp = await api.initChatConversation(initPayload)
+    const { conversation, session_token, visitor_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+    conversation.business_hours_id = business_hours_id
+    conversation.working_hours_utc_offset = working_hours_utc_offset
+
+    // Save visitor token from backend (the authoritative token stored in DB).
+    // This ensures the cookie always matches the DB, enabling future recovery.
+    if (visitor_token) {
+      setVisitorToken(visitor_token)
+    }
+
+    if (!userStore.userSessionToken && session_token) {
+      saveSession(session_token, user, userStore, false)
+    }
+
+    chatStore.addConversationToList(conversation)
+    chatStore.setCurrentConversation(conversation)
+    chatStore.replaceMessages(messages || [])
+  } catch (err) {
+    console.error('Failed to init visitor conversation:', err)
+  }
+}
+
+const fetchInitialConversations = async (isReturningVisitor = false) => {
+  // For visitor users (no session token), call initChatConversation to reuse/reopen existing conversation.
+  // This handles both cases: with visitor token (reuse) and without (create new).
+  if (!userStore.userSessionToken) {
+    await initViaVisitorToken(isReturningVisitor)
+    return
+  }
+
+  // Path B: has session token — try authenticated fetch first.
   const success = await chatStore.fetchConversations()
-  if (success && chatStore.hasConversations) {
-    try {
-      await chatStore.loadConversation(chatStore.getConversations[0].uuid)
-    } catch { /* non-blocking */ }
+  if (success) {
+    if (chatStore.hasConversations) {
+      try {
+        await chatStore.loadConversation(chatStore.getConversations[0].uuid)
+      } catch { /* non-blocking */ }
+    }
+    if (widgetStore.config?.direct_to_conversation) {
+      widgetStore.navigateToChat()
+    }
+    return
   }
-  if (widgetStore.config?.direct_to_conversation && success) {
-    widgetStore.navigateToChat()
-  }
+
+  // Path B failed (likely 401 = expired session). Fallback to visitor_token recovery.
+  // handleSessionExpired() already cleared the expired session token and chat state.
+  setApiSessionToken('')
+  await initViaVisitorToken(true)
 }
 
 // Listen for messages from parent window (widget.js)
@@ -87,48 +141,38 @@ const setupParentMessageListeners = () => {
       }
       const sessionToken = event.data.sessionToken
       const isNewSession = event.data.isNewSession
+      // Check if this is a returning visitor BEFORE setting the session token.
+      // A session cookie means the visitor was here before.
+      const inboxId = new URLSearchParams(window.location.search).get('inbox_id')
+      const sessionCookieName = `libredesk-session-${inboxId}`
+      const isReturningVisitor = !!(sessionToken && getCookie(sessionCookieName))
       try {
         if (sessionToken) {
           userStore.setSessionToken(sessionToken)
           setApiSessionToken(sessionToken)
-          // Session exists, fetchInitialConversations will load data. Skip WS sync.
-          skipInitialWsSync()
-          // Fetch user metadata for returning visitors.
-          // Guard against stale response if SET_JWT_TOKEN exchange replaced the token.
-          try {
-            const meResp = await api.getAuthMe()
-            if (userStore.userSessionToken === sessionToken) {
-              userStore.setUserMeta(meResp.data.data)
-            }
-          } catch {
-            // 401 is handled by the global response interceptor.
-          }
         }
 
-        if (isNewSession) {
+        if (isNewSession && sessionToken) {
           // First-time Bixiao auth: clear anonymous state and call initChatConversation
           // to trigger backend's create/reuse/reopen conversation logic.
-          chatStore.setCurrentConversation(null)
-          chatStore.conversations = null
-          chatStore.clearMessages()
-
-          try {
-            const resp = await api.initChatConversation({ skip_welcome: true })
-            const { conversation, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
-            conversation.business_hours_id = business_hours_id
-            conversation.working_hours_utc_offset = working_hours_utc_offset
-
-            chatStore.addConversationToList(conversation)
-            chatStore.setCurrentConversation(conversation)
-            chatStore.replaceMessages(messages || [])
-          } catch (err) {
-            console.error('Failed to init conversation after auth:', err)
+          if (userStore.isVisitor) {
+            userStore.clearSessionToken()
           }
+          userStore.setSessionToken(sessionToken)
+          setApiSessionToken(sessionToken)
+          const resp = await api.initChatConversation({})
+          const { conversation, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+          conversation.business_hours_id = business_hours_id
+          conversation.working_hours_utc_offset = working_hours_utc_offset
+          chatStore.addConversationToList(conversation)
+          chatStore.setCurrentConversation(conversation)
+          chatStore.replaceMessages(messages || [])
           widgetStore.navigateToChat()
         } else {
-          await fetchInitialConversations()
+          await fetchInitialConversations(isReturningVisitor)
         }
       } finally {
+        resolveInit()
         signalWidgetLoaded()
       }
     } else if (event.data.type === 'SET_JWT_TOKEN') {
@@ -140,12 +184,18 @@ const setupParentMessageListeners = () => {
           const resp = await api.exchangeJWTForSession(event.data.jwt)
           const { session_token, user } = resp.data.data
           saveSession(session_token, user, userStore)
-          // Session exists, fetchInitialConversations will load data. Skip WS sync.
-          skipInitialWsSync()
           chatStore.conversations = null
-          await fetchInitialConversations()
+          const initResp = await api.initChatConversation({})
+          const { conversation, messages, business_hours_id, working_hours_utc_offset } = initResp.data.data
+          conversation.business_hours_id = business_hours_id
+          conversation.working_hours_utc_offset = working_hours_utc_offset
+          chatStore.addConversationToList(conversation)
+          chatStore.setCurrentConversation(conversation)
+          chatStore.replaceMessages(messages || [])
+          resolveInit()
         } catch (err) {
           console.error('Failed to exchange JWT for session:', err)
+          resolveInit()
         } finally {
           signalWidgetLoaded()
         }

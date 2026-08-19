@@ -208,9 +208,12 @@ UPDATE users SET external_user_id = $2, updated_at = now()
 WHERE id = $1 AND type = 'contact' AND deleted_at IS NULL;
 
 -- name: insert-visitor
-INSERT INTO users (email, type, first_name, last_name, custom_attributes, phone_number, phone_number_country_code)
-VALUES ($1, 'visitor', $2, $3, $4, $5, $6)
+INSERT INTO users (email, type, first_name, last_name, custom_attributes, phone_number, phone_number_country_code, visitor_token)
+VALUES ($1, 'visitor', $2, $3, $4, $5, $6, $7)
 RETURNING *;
+
+-- name: get-visitor-by-token
+SELECT * FROM users WHERE visitor_token = $1 AND type = 'visitor' AND deleted_at IS NULL LIMIT 1;
 
 -- name: update-last-login-at
 UPDATE users
