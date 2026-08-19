@@ -279,19 +279,28 @@ func handleChatInit(r *fastglue.Request) error {
 	// If no conversations found for authenticated contact, try to find visitor conversations
 	// via visitor token and merge them to the contact.
 	if len(existingConversations) == 0 && contactID > 0 && req.VisitorToken != "" {
-		visitorSession, vErr := loadSession(app, req.VisitorToken, config)
-		if vErr == nil && visitorSession.IsVisitor && visitorSession.UserID > 0 && visitorSession.UserID != contactID && visitorSession.InboxID == inbox.ID {
-			// Merge visitor conversations to contact.
-			if err := app.user.MergeVisitorToContact(visitorSession.UserID, contactID); err != nil {
-				app.lo.Error("error merging visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", contactID, "error", err)
+		// The widget sends the database visitor_token (a UUID), not the Redis
+		// session key, so fall back to a DB lookup when the Redis session is
+		// not found.
+		var visitorID int
+		if visitorSession, vErr := loadSession(app, req.VisitorToken, config); vErr == nil &&
+			visitorSession.IsVisitor && visitorSession.UserID > 0 &&
+			visitorSession.UserID != contactID && visitorSession.InboxID == inbox.ID {
+			visitorID = visitorSession.UserID
+		} else if dbVisitor, dbErr := app.user.GetVisitorByToken(req.VisitorToken); dbErr == nil &&
+			dbVisitor.ID > 0 && dbVisitor.ID != contactID {
+			visitorID = dbVisitor.ID
+		}
+
+		if visitorID > 0 {
+			// Delete the visitor and their conversations instead of merging
+			// them into the authenticated contact, so the user starts with a
+			// clean conversation list after authenticating.
+			if err := app.user.DeleteVisitor(visitorID); err != nil {
+				app.lo.Error("error deleting visitor in chat init", "visitor_id", visitorID, "contact_id", contactID, "error", err)
 			} else {
-				app.lo.Info("merged visitor to contact in chat init", "visitor_id", visitorSession.UserID, "contact_id", contactID)
+				app.lo.Info("deleted visitor after auth in chat init", "visitor_id", visitorID, "contact_id", contactID)
 				deleteSessionToken(app, req.VisitorToken)
-				// Re-fetch conversations after merge.
-				existingConversations, err = app.conversation.GetContactChatConversations(contactID, inbox.ID)
-				if err != nil {
-					app.lo.Error("error fetching conversations after merge", "contact_id", contactID, "error", err)
-				}
 			}
 		}
 	}

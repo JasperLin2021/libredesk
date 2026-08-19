@@ -36,7 +36,7 @@ type bixiaoUserResponse struct {
 
 // bixiaoAPIResponse handles possible wrapper formats from the bixiaocrm API.
 type bixiaoAPIResponse struct {
-	Code int               `json:"code"`
+	Code int                `json:"code"`
 	Data bixiaoUserResponse `json:"data"`
 }
 
@@ -115,13 +115,36 @@ func handleBixiaoAuth(r *fastglue.Request) error {
 	}
 
 	// Merge visitor to contact if visitor token is provided.
+	// The widget stores the database visitor_token (a UUID) in its cookie,
+	// not the Redis session token, so fall back to a DB lookup when the Redis
+	// session is not found.
+	app.lo.Debug("bixiao auth request", "visitor_token_provided", req.VisitorToken != "", "visitor_token_len", len(req.VisitorToken))
 	if req.VisitorToken != "" {
-		visitorSession, vErr := loadSession(app, req.VisitorToken, config)
-		if vErr == nil && visitorSession.IsVisitor && visitorSession.UserID > 0 && visitorSession.UserID != contactID && visitorSession.InboxID == inbox.ID {
-			if err := app.user.MergeVisitorToContact(visitorSession.UserID, contactID); err != nil {
-				app.lo.Error("error merging visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", contactID, "error", err)
+		var visitorID int
+		if visitorSession, vErr := loadSession(app, req.VisitorToken, config); vErr == nil &&
+			visitorSession.IsVisitor && visitorSession.UserID > 0 &&
+			visitorSession.UserID != contactID && visitorSession.InboxID == inbox.ID {
+			visitorID = visitorSession.UserID
+			app.lo.Debug("bixiao auth found visitor via redis session", "visitor_id", visitorID)
+		} else if dbVisitor, dbErr := app.user.GetVisitorByToken(req.VisitorToken); dbErr == nil &&
+			dbVisitor.ID > 0 && dbVisitor.ID != contactID {
+			visitorID = dbVisitor.ID
+			app.lo.Debug("bixiao auth found visitor via db lookup", "visitor_id", visitorID)
+		} else {
+			// Neither the Redis session nor the DB lookup resolved a visitor
+			// for this token, so there is nothing to delete.
+			app.lo.Debug("bixiao auth visitor lookup found nothing",
+				"visitor_token", req.VisitorToken)
+		}
+
+		if visitorID > 0 {
+			// Delete the visitor and their conversations instead of merging
+			// them into the authenticated contact, so the user starts with a
+			// clean conversation list after authenticating.
+			if err := app.user.DeleteVisitor(visitorID); err != nil {
+				app.lo.Error("error deleting visitor", "visitor_id", visitorID, "contact_id", contactID, "error", err)
 			} else {
-				app.lo.Info("merged visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", contactID)
+				app.lo.Info("deleted visitor after bixiao auth", "visitor_id", visitorID, "contact_id", contactID)
 				deleteSessionToken(app, req.VisitorToken)
 				// Signal frontend to clear visitor token cookie.
 				r.RequestCtx.Response.Header.Set(hdrClearVisitorToken, "true")

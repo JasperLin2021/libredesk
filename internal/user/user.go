@@ -116,8 +116,9 @@ type queries struct {
 	RevokeAPIKey         *sqlx.Stmt `query:"revoke-api-key"`
 	UpdateAPIKeyLastUsed *sqlx.Stmt `query:"update-api-key-last-used"`
 
+	DeleteVisitor         *sqlx.Stmt `query:"delete-visitor"`
 	MergeVisitorToContact *sqlx.Stmt `query:"merge-visitor-to-contact"`
-	GetVisitorByToken      *sqlx.Stmt `query:"get-visitor-by-token"`
+	GetVisitorByToken     *sqlx.Stmt `query:"get-visitor-by-token"`
 }
 
 // New creates and returns a new instance of the Manager.
@@ -475,6 +476,23 @@ func (u *Manager) RevokeAPIKey(userID int) error {
 	if _, err := u.q.RevokeAPIKey.Exec(userID); err != nil {
 		u.lo.Error("error revoking API key", "error", err, "user_id", userID)
 		return envelope.NewError(envelope.GeneralError, u.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return nil
+}
+
+// DeleteVisitor permanently removes a visitor user and cascades the deletion
+// to all of their conversations, messages, notes, drafts, and related records.
+func (u *Manager) DeleteVisitor(visitorID int) error {
+	res, err := u.q.DeleteVisitor.Exec(visitorID)
+	if err != nil {
+		u.lo.Error("error deleting visitor", "visitor_id", visitorID, "error", err)
+		return envelope.NewError(envelope.GeneralError, u.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	if affected, aErr := res.RowsAffected(); aErr == nil && affected == 0 {
+		// The row may have already been deleted, or the user is no longer a
+		// visitor (e.g. previously upgraded to a contact). Either way there is
+		// nothing left to delete here.
+		u.lo.Warn("delete-visitor matched no rows", "visitor_id", visitorID)
 	}
 	return nil
 }

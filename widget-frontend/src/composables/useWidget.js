@@ -90,7 +90,17 @@ export function useWidget() {
     checking.value = true
     verifyError.value = null
 
+    const api = window.Libredesk
+
     try {
+      // Read the visitor token (if any) so the backend can delete the visitor's
+      // conversations before we clear the cookie. This ensures the authenticated
+      // user starts with a clean conversation list.
+      let visitorToken = ''
+      if (api && typeof api.getCookie === 'function' && typeof api.getCookieName === 'function') {
+        visitorToken = api.getCookie(api.getCookieName('visitor')) || ''
+      }
+
       const url = `${config.baseURL}/api/v1/widget/chat/auth/bixiao`
       const response = await fetch(url, {
         method: 'POST',
@@ -102,6 +112,7 @@ export function useWidget() {
           token,
           device,
           version_seq: versionSeq,
+          visitor_token: visitorToken,
         }),
       })
 
@@ -122,9 +133,15 @@ export function useWidget() {
       // Feed the session token into the widget so its iframe can authenticate.
       // Pass isSessionToken=true because we already have a valid session token
       // from bixiaocrm auth, not a JWT that needs exchange.
-      const api = window.Libredesk
       if (api && typeof api.setUser === 'function') {
         api.setUser(sessionToken, true, true)
+      }
+
+      // Clear the visitor cookie. The backend already deleted the visitor's
+      // conversations, so the cookie must not linger and cause a fresh visitor
+      // to be recreated on the next page load.
+      if (api && typeof api.deleteCookie === 'function' && typeof api.getCookieName === 'function') {
+        api.deleteCookie(api.getCookieName('visitor'))
       }
 
       isAuthenticated.value = true

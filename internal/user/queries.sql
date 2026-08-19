@@ -389,6 +389,9 @@ LIMIT 1;
 UPDATE users SET type = 'contact', updated_at = now()
 WHERE id = $1 AND type = 'visitor';
 
+-- name: delete-visitor
+DELETE FROM users WHERE id = $1 AND type = 'visitor';
+
 -- name: merge-visitor-to-contact
 WITH transfer_conversations AS (
     UPDATE conversations

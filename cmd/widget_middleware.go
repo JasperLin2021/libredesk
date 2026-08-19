@@ -135,14 +135,29 @@ func widgetAuth(next func(*fastglue.Request) error) func(*fastglue.Request) erro
 		r.RequestCtx.SetUserValue(ctxWidgetIsVisitor, session.IsVisitor)
 
 		// Merge visitor to contact if visitor token is provided.
+		// The widget sends the database visitor_token (a UUID), not the Redis
+		// session key, so fall back to a DB lookup when the Redis session is
+		// not found.
 		visitorToken := string(r.RequestCtx.Request.Header.Peek(hdrWidgetVisitorToken))
 		if visitorToken != "" && session.ExternalUserID != "" && session.UserID > 0 {
-			visitorSession, vErr := loadSession(app, visitorToken, config)
-			if vErr == nil && visitorSession.IsVisitor && visitorSession.UserID > 0 && visitorSession.UserID != session.UserID && visitorSession.InboxID == inbox.ID {
-				if err := app.user.MergeVisitorToContact(visitorSession.UserID, session.UserID); err != nil {
-					app.lo.Error("error merging visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", session.UserID, "error", err)
+			var visitorID int
+			if visitorSession, vErr := loadSession(app, visitorToken, config); vErr == nil &&
+				visitorSession.IsVisitor && visitorSession.UserID > 0 &&
+				visitorSession.UserID != session.UserID && visitorSession.InboxID == inbox.ID {
+				visitorID = visitorSession.UserID
+			} else if dbVisitor, dbErr := app.user.GetVisitorByToken(visitorToken); dbErr == nil &&
+				dbVisitor.ID > 0 && dbVisitor.ID != session.UserID {
+				visitorID = dbVisitor.ID
+			}
+
+			if visitorID > 0 {
+				// Delete the visitor and their conversations instead of merging
+				// them into the authenticated contact, so the user starts with a
+				// clean conversation list after authenticating.
+				if err := app.user.DeleteVisitor(visitorID); err != nil {
+					app.lo.Error("error deleting visitor", "visitor_id", visitorID, "contact_id", session.UserID, "error", err)
 				} else {
-					app.lo.Info("merged visitor to contact", "visitor_id", visitorSession.UserID, "contact_id", session.UserID)
+					app.lo.Info("deleted visitor after auth", "visitor_id", visitorID, "contact_id", session.UserID)
 					deleteSessionToken(app, visitorToken)
 					r.RequestCtx.Response.Header.Set(hdrClearVisitorToken, "true")
 				}
