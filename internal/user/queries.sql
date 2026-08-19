@@ -1,5 +1,5 @@
 -- name: get-users-compact
-SELECT COUNT(*) OVER() as total, users.id, users.avatar_url, users.type, users.created_at, users.updated_at, users.first_name, users.last_name, users.email, users.enabled, users.external_user_id, users.availability_status
+SELECT COUNT(*) OVER() as total, users.id, users.avatar_url, users.type, users.created_at, users.updated_at, users.first_name, users.last_name, users.email, users.enabled, users.external_user_id, users.availability_status, users.phone_number
 FROM users
 -- email != 'System' also drops NULL-email users (anonymous visitors); AI assistants have no email and must still be listed.
 WHERE (users.email != 'System' OR users.type = 'ai_assistant') AND users.deleted_at IS NULL AND type = ANY($1)
@@ -175,6 +175,7 @@ DO UPDATE SET email = COALESCE(NULLIF(EXCLUDED.email, ''), users.email),
               last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), users.last_name),
               phone_number = COALESCE(NULLIF(EXCLUDED.phone_number, ''), users.phone_number),
               phone_number_country_code = COALESCE(NULLIF(EXCLUDED.phone_number_country_code, ''), users.phone_number_country_code),
+              avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), users.avatar_url),
               updated_at = now()
 RETURNING id;
 

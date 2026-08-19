@@ -89,6 +89,10 @@
                 <IdCardIcon size="12" class="flex-shrink-0" />
                 <span class="truncate">{{ contact.external_user_id }}</span>
               </div>
+              <div v-if="contact.phone_number" class="flex items-center gap-1 text-xs text-muted-foreground">
+                <PhoneIcon size="12" class="flex-shrink-0" />
+                <span class="truncate">{{ contact.phone_number }}</span>
+              </div>
             </div>
           </div>
         </Card>
@@ -121,7 +125,7 @@ import {
 } from '@shared-ui/components/ui/select'
 import { Input } from '@shared-ui/components/ui/input'
 import { Button } from '@shared-ui/components/ui/button'
-import { ArrowDownWideNarrow, IdCardIcon } from 'lucide-vue-next'
+import { ArrowDownWideNarrow, IdCardIcon, PhoneIcon } from 'lucide-vue-next'
 import { Popover, PopoverContent, PopoverTrigger } from '@shared-ui/components/ui/popover'
 import { useDebounceFn } from '@vueuse/core'
 import { EMITTER_EVENTS } from '@main/constants/emitterEvents.js'

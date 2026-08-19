@@ -38,6 +38,7 @@ type UserCompact struct {
 	FirstName          string      `db:"first_name" json:"first_name"`
 	LastName           string      `db:"last_name" json:"last_name"`
 	Email              null.String `db:"email" json:"email"`
+	PhoneNumber        null.String `db:"phone_number" json:"phone_number"`
 	Enabled            bool        `db:"enabled" json:"enabled"`
 	AvatarURL          null.String `db:"avatar_url" json:"avatar_url"`
 	ExternalUserID     null.String `db:"external_user_id" json:"external_user_id"`

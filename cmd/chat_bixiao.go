@@ -32,6 +32,8 @@ type bixiaoAuthRequest struct {
 type bixiaoUserResponse struct {
 	Nickname string `json:"nickname"`
 	TlID     string `json:"tlId"`
+	Phone    string `json:"phone"`
+	Avatar   string `json:"avatar"`
 }
 
 // bixiaoAPIResponse handles possible wrapper formats from the bixiaocrm API.
@@ -159,14 +161,18 @@ func handleBixiaoAuth(r *fastglue.Request) error {
 
 	sendSession := func(token string) error {
 		app.redis.Set(ctx, reverseKey, token, sessionTTL)
+		userInfo := map[string]any{
+			"user_id":    contactID,
+			"is_visitor": false,
+			"first_name": bixiaoUser.Nickname,
+			"last_name":  "",
+		}
+		if bixiaoUser.Avatar != "" {
+			userInfo["avatar"] = bixiaoUser.Avatar
+		}
 		return r.SendEnvelope(map[string]any{
 			"session_token": token,
-			"user": map[string]any{
-				"user_id":    contactID,
-				"is_visitor": false,
-				"first_name": bixiaoUser.Nickname,
-				"last_name":  "",
-			},
+			"user":          userInfo,
 		})
 	}
 
@@ -240,10 +246,20 @@ func resolveOrCreateBixiaoContact(app *App, user bixiaoUserResponse) (int, error
 	// Try to find existing contact by external_user_id (tlId).
 	existing, err := app.user.GetByExternalID(user.TlID)
 	if err == nil {
-		// Contact exists - sync nickname if changed.
+		// Contact exists - sync nickname, phone and avatar if they changed.
 		if user.Nickname != "" && existing.FirstName != user.Nickname {
 			if updateErr := app.user.UpdateContactBasicInfo(existing.ID, user.Nickname, "", "", "", ""); updateErr != nil {
 				app.lo.Error("error updating bixiao contact name", "contact_id", existing.ID, "error", updateErr)
+			}
+		}
+		if user.Phone != "" && existing.PhoneNumber.String != user.Phone {
+			if updateErr := app.user.UpdateContactBasicInfo(existing.ID, "", "", "", user.Phone, ""); updateErr != nil {
+				app.lo.Error("error updating bixiao contact phone", "contact_id", existing.ID, "error", updateErr)
+			}
+		}
+		if user.Avatar != "" && existing.AvatarURL.String != user.Avatar {
+			if updateErr := app.user.UpdateAvatar(existing.ID, user.Avatar); updateErr != nil {
+				app.lo.Error("error updating bixiao contact avatar", "contact_id", existing.ID, "error", updateErr)
 			}
 		}
 		return existing.ID, nil
@@ -257,6 +273,8 @@ func resolveOrCreateBixiaoContact(app *App, user bixiaoUserResponse) (int, error
 	newUser := umodels.User{
 		FirstName:      user.Nickname,
 		ExternalUserID: null.NewString(user.TlID, true),
+		PhoneNumber:    null.NewString(user.Phone, user.Phone != ""),
+		AvatarURL:      null.NewString(user.Avatar, user.Avatar != ""),
 	}
 
 	if createErr := app.user.CreateContact(&newUser); createErr != nil {

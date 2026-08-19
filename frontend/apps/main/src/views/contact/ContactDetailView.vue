@@ -41,6 +41,14 @@
               {{ contact.external_user_id }}
             </div>
 
+            <div
+              v-if="contact.phone_number"
+              class="flex items-center gap-1.5 text-xs text-muted-foreground"
+            >
+              <PhoneIcon size="14" class="flex-shrink-0" />
+              {{ contact.phone_number }}
+            </div>
+
             <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
               <CalendarIcon size="14" class="flex-shrink-0" />
               {{ $t('globals.terms.createdOn') }}
@@ -114,7 +122,7 @@ import {
   DialogDescription
 } from '@shared-ui/components/ui/dialog'
 import { useUserStore } from '../../stores/user'
-import { ShieldOffIcon, ShieldCheckIcon, IdCardIcon, CalendarIcon } from 'lucide-vue-next'
+import { ShieldOffIcon, ShieldCheckIcon, IdCardIcon, CalendarIcon, PhoneIcon } from 'lucide-vue-next'
 import ContactDetail from '@/layouts/contact/ContactDetail.vue'
 import api from '../../api'
 import ContactForm from '@/features/contact/ContactForm.vue'
