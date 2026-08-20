@@ -167,6 +167,18 @@ func (c *Manager) UpdateConversationMeta(conversationUUID string, meta map[strin
 	return nil
 }
 
+// DeleteConversationMetaKey removes a single key from the conversation's meta.
+// update-conversation-meta merges with || (JSONB union), which can add or
+// overwrite keys but NEVER removes them, so removing a key requires this
+// dedicated query. It implements the quickreply.ConversationService interface.
+func (c *Manager) DeleteConversationMetaKey(conversationUUID, key string) error {
+	if _, err := c.q.DeleteConversationMetaKey.Exec(conversationUUID, key); err != nil {
+		c.lo.Error("error deleting conversation meta key", "conversation_uuid", conversationUUID, "key", key, "error", err)
+		return envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return nil
+}
+
 // CountOpenUnassignedConversations returns the number of open conversations
 // that are not assigned to any agent or team. It implements the
 // quickreply.ConversationService interface.
@@ -430,6 +442,7 @@ type queries struct {
 
 	// Quick reply queries.
 	UpdateConversationMeta             *sqlx.Stmt `query:"update-conversation-meta"`
+	DeleteConversationMetaKey          *sqlx.Stmt `query:"delete-conversation-meta-key"`
 	CountOpenUnassignedConversations   *sqlx.Stmt `query:"count-open-unassigned-conversations"`
 }
 
@@ -1148,6 +1161,18 @@ func (c *Manager) ReopenAndUnassignConversation(uuid string, contactID int, inbo
 	if _, err := c.q.ReopenAndUnassignConversation.Exec(uuid); err != nil {
 		c.lo.Error("error reopening and unassigning conversation", "uuid", uuid, "error", err)
 		return envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+
+	// A reopened conversation starts a fresh round for the visitor: clear the
+	// "human requested" marker so quick reply auto-replies (welcome message,
+	// topic / question cards) work again after the agent closed the conversation
+	// and the visitor starts a new one.
+	if meta, mErr := c.GetConversationMeta(uuid); mErr == nil {
+		if _, ok := meta[models.ConversationMetaBotHumanRequested]; ok {
+			if err := c.DeleteConversationMetaKey(uuid, models.ConversationMetaBotHumanRequested); err != nil {
+				c.lo.Error("error clearing bot human requested meta on reopen", "uuid", uuid, "error", err)
+			}
+		}
 	}
 
 	// Broadcast the status change to agents.

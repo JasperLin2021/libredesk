@@ -107,6 +107,15 @@ const fetchInitialConversations = async (isReturningVisitor = false) => {
   // Path B: has session token — try authenticated fetch first.
   const success = await chatStore.fetchConversations()
   if (success) {
+    // Restore user metadata after a hard refresh. fetchConversations does not
+    // populate userStore, so without this the pending message avatar would fall
+    // back to the initial letter ("V") until the server responds.
+    try {
+      const meResp = await api.getAuthMe()
+      if (meResp?.data?.data) {
+        userStore.setUserMeta(meResp.data.data)
+      }
+    } catch { /* non-blocking */ }
     if (chatStore.hasConversations) {
       try {
         await chatStore.loadConversation(chatStore.getConversations[0].uuid)

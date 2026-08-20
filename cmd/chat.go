@@ -321,14 +321,16 @@ func handleChatInit(r *fastglue.Request) error {
 			}
 		}
 
-		// Clear the bot human transfer request flag so that quick reply
-		// auto-replies work again when the user starts a new session.
+		// Reopening the widget starts a fresh round for the visitor. Clear any
+		// lingering "human requested" marker so quick reply auto-replies (topics,
+		// questions) work again after a hard refresh. If a human agent is still
+		// assigned, the assignment check in quickreply continues to suppress
+		// auto-replies.
 		convMeta, metaErr := app.conversation.GetConversationMeta(conversationUUID)
 		if metaErr == nil {
 			if _, ok := convMeta[cmodels.ConversationMetaBotHumanRequested]; ok {
-				delete(convMeta, cmodels.ConversationMetaBotHumanRequested)
-				if err := app.conversation.UpdateConversationMeta(conversationUUID, convMeta); err != nil {
-					app.lo.Error("error clearing bot human requested meta", "uuid", conversationUUID, "error", err)
+				if err := app.conversation.DeleteConversationMetaKey(conversationUUID, cmodels.ConversationMetaBotHumanRequested); err != nil {
+					app.lo.Error("error clearing bot human requested meta on widget init", "uuid", conversationUUID, "error", err)
 				}
 			}
 		}
@@ -438,6 +440,7 @@ func handleChatInit(r *fastglue.Request) error {
 			"is_visitor": isVisitor,
 			"first_name": visitor.FirstName,
 			"last_name":  visitor.LastName,
+			"avatar_url": visitor.AvatarURL.String,
 		}
 	}
 
@@ -537,6 +540,13 @@ func handleAuthExchange(r *fastglue.Request) error {
 
 	sendSession := func(token string) error {
 		app.redis.Set(ctx, reverseKey, token, sessionTTL)
+
+		// Fetch the contact so the response includes the latest avatar.
+		avatarURL := ""
+		if contact, err := app.user.Get(contactID, "", []string{umodels.UserTypeContact, umodels.UserTypeVisitor}); err == nil {
+			avatarURL = contact.AvatarURL.String
+		}
+
 		return r.SendEnvelope(map[string]any{
 			"session_token": token,
 			"user": map[string]any{
@@ -544,6 +554,7 @@ func handleAuthExchange(r *fastglue.Request) error {
 				"is_visitor": false,
 				"first_name": claims.FirstName,
 				"last_name":  claims.LastName,
+				"avatar_url": avatarURL,
 			},
 		})
 	}
@@ -583,6 +594,7 @@ func handleWidgetAuthMe(r *fastglue.Request) error {
 		"is_visitor": u.Type == umodels.UserTypeVisitor,
 		"first_name": u.FirstName,
 		"last_name":  u.LastName,
+		"avatar_url": u.AvatarURL.String,
 	})
 }
 
@@ -633,6 +645,26 @@ func handleGetConversations(r *fastglue.Request) error {
 	if err != nil {
 		app.lo.Error("error fetching conversations for contact", "contact_id", contactID, "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.GeneralError)
+	}
+
+	// Loading the conversation list on a hard refresh starts a fresh round for
+	// the visitor. Clear any lingering "human requested" marker so quick reply
+	// auto-replies (topics, questions) work again. If a human agent is still
+	// assigned, the assignment check in quickreply continues to suppress
+	// auto-replies.
+	for _, cc := range chatConversations {
+		if cc.UUID == "" {
+			continue
+		}
+		convMeta, metaErr := app.conversation.GetConversationMeta(cc.UUID)
+		if metaErr != nil {
+			continue
+		}
+		if _, ok := convMeta[cmodels.ConversationMetaBotHumanRequested]; ok {
+			if err := app.conversation.DeleteConversationMetaKey(cc.UUID, cmodels.ConversationMetaBotHumanRequested); err != nil {
+				app.lo.Error("error clearing bot human requested meta on conversation list", "uuid", cc.UUID, "error", err)
+			}
+		}
 	}
 
 	return r.SendEnvelope(chatConversations)

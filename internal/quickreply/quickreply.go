@@ -29,6 +29,10 @@ type ConversationService interface {
 	GetConversationMeta(conversationUUID string) (map[string]any, error)
 	// UpdateConversationMeta merges the given keys into the conversation's meta.
 	UpdateConversationMeta(conversationUUID string, meta map[string]any) error
+	// DeleteConversationMetaKey removes a single key from the conversation's meta.
+	// Unlike UpdateConversationMeta (JSONB union, cannot delete keys), this can
+	// actually remove an existing key.
+	DeleteConversationMetaKey(conversationUUID, key string) error
 	// CountOpenUnassignedConversations returns the number of open conversations
 	// that are not assigned to any agent or team (used for queue position).
 	CountOpenUnassignedConversations() (int, error)
@@ -361,9 +365,11 @@ func (m *Manager) SendWelcomeReply(conversation cmodels.Conversation) error {
 
 // HandleIncomingMessage processes a visitor's message and sends an automatic
 // reply when the message matches the configured transfer keyword, a topic, or
-// a question. It is a no-op when quick reply is disabled, the conversation is
-// already handled by a human agent, or the visitor has already requested a
-// transfer to a human agent. It returns the list of bot messages created.
+// a question. It is a no-op when quick reply is disabled. Once the visitor has
+// requested a transfer to a human agent or the conversation is already assigned
+// to an agent, all auto replies are suppressed — including topic / question card
+// clicks — so the visitor interacts with the human agent only. It returns the
+// list of bot messages created.
 func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, content string) ([]cmodels.Message, error) {
 	if m.conv == nil {
 		return nil, nil
@@ -373,13 +379,22 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 		return nil, nil
 	}
 
-	// Skip when the conversation is already handled by a human agent.
-	if conversation.AssignedUserID.Valid || conversation.AssignedTeamID.Valid {
+	content = strings.TrimSpace(content)
+	if content == "" {
 		return nil, nil
 	}
 
-	content = strings.TrimSpace(content)
-	if content == "" {
+	// Once the visitor requested a transfer to a human agent or the conversation
+	// is already assigned to an agent, stop all auto replies (including topic /
+	// question card clicks) so the visitor interacts with the human agent only.
+	if conversation.AssignedUserID.Valid || conversation.AssignedTeamID.Valid {
+		return nil, nil
+	}
+	meta, err := m.conv.GetConversationMeta(conversation.UUID)
+	if err != nil {
+		return nil, nil
+	}
+	if requested, _ := meta[cmodels.ConversationMetaBotHumanRequested].(bool); requested {
 		return nil, nil
 	}
 
@@ -389,9 +404,8 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 	}
 
 	// Match against configured topics and questions. Topic / question cards clicked
-	// by the visitor always get a reply, even if the visitor previously requested a
-	// transfer to a human agent, so that the auto-reply flow keeps working until a
-	// human agent actually takes over the conversation.
+	// by the visitor always get a reply, so the auto-reply flow keeps working until
+	// the visitor asks to be transferred or a human agent takes over.
 	topics, err := m.GetTopicsWithQuestions(conversation.InboxID)
 	if err != nil {
 		return nil, nil
@@ -422,16 +436,8 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 		}
 	}
 
-	// Skip free-form auto replies once the visitor has requested a transfer to a
-	// human agent. Only exact topic / question matches above are honoured in that
-	// state; random text no longer triggers automatic replies.
-	meta, err := m.conv.GetConversationMeta(conversation.UUID)
-	if err != nil {
-		return nil, nil
-	}
-	if requested, _ := meta[cmodels.ConversationMetaBotHumanRequested].(bool); requested {
-		return nil, nil
-	}
+	// Free-form text that does not match any topic or question never triggers an
+	// automatic reply.
 	return nil, nil
 }
 
@@ -440,10 +446,6 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 // The transfer marker is cleared afterwards.
 func (m *Manager) HandleUserAssigned(conversation cmodels.Conversation) error {
 	if m.conv == nil {
-		return nil
-	}
-	cfg, err := m.GetConfig(conversation.InboxID)
-	if err != nil || !cfg.Enabled || strings.TrimSpace(cfg.AssignedReply) == "" {
 		return nil
 	}
 
@@ -456,13 +458,20 @@ func (m *Manager) HandleUserAssigned(conversation cmodels.Conversation) error {
 		return nil
 	}
 
-	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil); err != nil {
-		m.lo.Error("error sending quick reply assigned message", "conversation_uuid", conversation.UUID, "error", err)
+	// Send the "you are now connected to a human agent" reply if configured.
+	cfg, err := m.GetConfig(conversation.InboxID)
+	if err == nil && cfg.Enabled && strings.TrimSpace(cfg.AssignedReply) != "" {
+		if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil); err != nil {
+			m.lo.Error("error sending quick reply assigned message", "conversation_uuid", conversation.UUID, "error", err)
+		}
 	}
 
-	// Clear the transfer marker so future assignment events don't re-send.
-	delete(meta, cmodels.ConversationMetaBotHumanRequested)
-	if err := m.conv.UpdateConversationMeta(conversation.UUID, meta); err != nil {
+	// Clear the transfer marker. Once a human agent takes over, the conversation
+	// is guarded by the assignment check in HandleIncomingMessage, so the marker
+	// must be removed even when no assigned reply is configured — otherwise it
+	// lingers and silently kills auto-replies after the conversation is closed
+	// and reopened (or unassigned) later.
+	if err := m.conv.DeleteConversationMetaKey(conversation.UUID, cmodels.ConversationMetaBotHumanRequested); err != nil {
 		m.lo.Error("error clearing quick reply transfer marker", "conversation_uuid", conversation.UUID, "error", err)
 	}
 	return nil

@@ -1040,8 +1040,19 @@ ORDER BY last_message_at DESC NULLS LAST
 LIMIT 200;
 
 -- name: update-conversation-meta
+-- NOTE: merges with || (JSONB union): it can add or overwrite keys but NEVER
+-- removes them. To delete a key use delete-conversation-meta-key instead.
 UPDATE conversations
 SET meta = COALESCE(meta, '{}'::jsonb) || $2::jsonb,
+    updated_at = NOW()
+WHERE uuid = $1;
+
+-- name: delete-conversation-meta-key
+-- Removes a single key from the meta JSONB column using the - operator, which
+-- is the only way to delete a key (the || union in update-conversation-meta
+-- can never remove keys).
+UPDATE conversations
+SET meta = COALESCE(meta, '{}'::jsonb) - $2::text,
     updated_at = NOW()
 WHERE uuid = $1;
 

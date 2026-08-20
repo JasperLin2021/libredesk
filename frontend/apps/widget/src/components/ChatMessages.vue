@@ -325,6 +325,10 @@ const getMessageAvatarUrl = (message) => {
 }
 
 const getMessageAvatarFallback = (message) => {
+  // When a real avatar URL is present, don't render a letter fallback while the
+  // image is still loading — it briefly flashes "V" on hard refresh before the
+  // avatar image finishes downloading.
+  if (getMessageAvatarUrl(message)) return ''
   if (isUserMessage(message)) {
     const name = message.author?.first_name || userStore.firstName || 'V'
     return name.charAt(0).toUpperCase()
