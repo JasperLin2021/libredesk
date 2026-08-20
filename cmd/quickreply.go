@@ -15,12 +15,13 @@ const maxQuickReplyFieldLength = 10000
 // quickReplyConfigRequest is the request body for updating the quick reply
 // configuration of an inbox.
 type quickReplyConfigRequest struct {
-	WelcomeMessage  string `json:"welcome_message"`
-	TransferKeyword string `json:"transfer_keyword"`
-	QueueReply      string `json:"queue_reply"`
-	AssignedReply   string `json:"assigned_reply"`
-	ClosedReply     string `json:"closed_reply"`
-	Enabled         bool   `json:"enabled"`
+	WelcomeMessage      string `json:"welcome_message"`
+	TransferKeyword     string `json:"transfer_keyword"`
+	QueueReply          string `json:"queue_reply"`
+	AssignedReply       string `json:"assigned_reply"`
+	ClosedReply         string `json:"closed_reply"`
+	NoReplyTimeoutReply string `json:"no_reply_timeout_reply"`
+	Enabled             bool   `json:"enabled"`
 }
 
 // handleGetQuickReplyConfig returns the quick reply config of an inbox.
@@ -57,15 +58,16 @@ func handleUpdateQuickReplyConfig(r *fastglue.Request) error {
 	req.QueueReply = strings.TrimSpace(req.QueueReply)
 	req.AssignedReply = strings.TrimSpace(req.AssignedReply)
 	req.ClosedReply = strings.TrimSpace(req.ClosedReply)
+	req.NoReplyTimeoutReply = strings.TrimSpace(req.NoReplyTimeoutReply)
 	if req.TransferKeyword == "" {
 		req.TransferKeyword = "我要转人工"
 	}
 	if len(req.WelcomeMessage) > maxQuickReplyFieldLength || len(req.TransferKeyword) > 500 ||
 		len(req.QueueReply) > maxQuickReplyFieldLength || len(req.AssignedReply) > maxQuickReplyFieldLength ||
-		len(req.ClosedReply) > maxQuickReplyFieldLength {
+		len(req.ClosedReply) > maxQuickReplyFieldLength || len(req.NoReplyTimeoutReply) > maxQuickReplyFieldLength {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.inputTooLong"), nil, envelope.InputError)
 	}
-	cfg, err := app.quickReply.UpsertConfig(id, req.WelcomeMessage, req.TransferKeyword, req.QueueReply, req.AssignedReply, req.ClosedReply, req.Enabled)
+	cfg, err := app.quickReply.UpsertConfig(id, req.WelcomeMessage, req.TransferKeyword, req.QueueReply, req.AssignedReply, req.ClosedReply, req.NoReplyTimeoutReply, req.Enabled)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}

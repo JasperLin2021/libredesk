@@ -515,6 +515,8 @@
   "admin.quickReply.assignedReply.description": "Sent when the conversation is assigned to an agent.",
   "admin.quickReply.closedReply": "Conversation closed reply",
   "admin.quickReply.closedReply.description": "Sent when the conversation is closed.",
+  "admin.quickReply.noReplyTimeoutReply": "No reply timeout message",
+  "admin.quickReply.noReplyTimeoutReply.description": "Sent on behalf of the assigned agent when the visitor has not replied for a long time after the agent's last message; the conversation is then closed automatically.",
   "admin.quickReply.topics": "Topics & questions",
   "admin.quickReply.addTopic": "Add topic",
   "admin.quickReply.topicNamePlaceholder": "Topic name",

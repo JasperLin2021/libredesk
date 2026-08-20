@@ -351,6 +351,8 @@
   "admin.quickReply.assignedReply.description": "会话被分配给客服时自动发送。",
   "admin.quickReply.closedReply": "会话关闭文案",
   "admin.quickReply.closedReply.description": "会话状态变更为关闭时自动发送。",
+  "admin.quickReply.noReplyTimeoutReply": "长时间未回复文案",
+  "admin.quickReply.noReplyTimeoutReply.description": "客服最后回复后，用户长时间未回复时以客服口吻自动发送，随后自动关闭会话。",
   "admin.quickReply.topics": "主题与问题",
   "admin.quickReply.addTopic": "新增主题",
   "admin.quickReply.topicNamePlaceholder": "主题名称",

@@ -144,6 +144,19 @@ func (c *Manager) SendReplyAsUser(userID, inboxID, contactID int, conversationUU
 	return c.QueueReply(nil, inboxID, userID, contactID, conversationUUID, content, nil, nil, nil, metaMap)
 }
 
+// CloseConversation closes the given conversation on behalf of the system user.
+// It implements the quickreply.ConversationService interface. Going through
+// UpdateConversationStatus triggers the configured closed reply (and any other
+// status-change side effects) as a regular agent-driven close would.
+func (c *Manager) CloseConversation(uuid string) error {
+	systemUser, err := c.userStore.GetSystemUser()
+	if err != nil {
+		c.lo.Error("error fetching system user for closing conversation", "conversation_uuid", uuid, "error", err)
+		return err
+	}
+	return c.UpdateConversationStatus(uuid, 0, models.StatusClosed, "", systemUser)
+}
+
 // GetConversationMeta returns the conversation's meta as a map. It implements
 // the quickreply.ConversationService interface.
 func (c *Manager) GetConversationMeta(conversationUUID string) (map[string]any, error) {
@@ -205,6 +218,16 @@ type waitingHumanConversation struct {
 	UUID      string `db:"uuid"`
 	ContactID int    `db:"contact_id"`
 	InboxID   int    `db:"inbox_id"`
+}
+
+// staleAgentConversation is a single row of the get-stale-agent-conversations
+// query: every open conversation assigned to an agent whose last real agent
+// message is older than the configured no-reply timeout.
+type staleAgentConversation struct {
+	UUID           string `db:"uuid"`
+	InboxID        int    `db:"inbox_id"`
+	ContactID      int    `db:"contact_id"`
+	AssignedUserID int    `db:"assigned_user_id"`
 }
 
 // RefreshWaitingQueueInfo recomputes the queue count for every conversation that
@@ -490,10 +513,11 @@ type queries struct {
 	GetConversationUUIDsByContact *sqlx.Stmt `query:"get-conversation-uuids-by-contact"`
 
 	// Quick reply queries.
-	UpdateConversationMeta             *sqlx.Stmt `query:"update-conversation-meta"`
-	DeleteConversationMetaKey          *sqlx.Stmt `query:"delete-conversation-meta-key"`
-	CountOpenUnassignedConversations   *sqlx.Stmt `query:"count-open-unassigned-conversations"`
-	GetWaitingHumanConversations       *sqlx.Stmt `query:"get-waiting-human-conversations"`
+	UpdateConversationMeta           *sqlx.Stmt `query:"update-conversation-meta"`
+	DeleteConversationMetaKey        *sqlx.Stmt `query:"delete-conversation-meta-key"`
+	CountOpenUnassignedConversations *sqlx.Stmt `query:"count-open-unassigned-conversations"`
+	GetWaitingHumanConversations     *sqlx.Stmt `query:"get-waiting-human-conversations"`
+	GetStaleAgentConversations       *sqlx.Stmt `query:"get-stale-agent-conversations"`
 }
 
 // CreateConversation creates a new conversation. If maxConversations > 0, the insert is
@@ -1251,6 +1275,13 @@ func (c *Manager) ReopenAndUnassignConversation(uuid string, contactID int, inbo
 		if _, ok := meta[models.ConversationMetaQueueInfo]; ok {
 			if err := c.DeleteConversationMetaKey(uuid, models.ConversationMetaQueueInfo); err != nil {
 				c.lo.Error("error clearing queue info meta on reopen", "uuid", uuid, "error", err)
+			}
+		}
+		// Clear the no-reply-timeout marker so the timeout flow can trigger
+		// again on the fresh round after the conversation is reopened.
+		if _, ok := meta[models.ConversationMetaNoReplyTimeoutSent]; ok {
+			if err := c.DeleteConversationMetaKey(uuid, models.ConversationMetaNoReplyTimeoutSent); err != nil {
+				c.lo.Error("error clearing no reply timeout meta on reopen", "uuid", uuid, "error", err)
 			}
 		}
 	}

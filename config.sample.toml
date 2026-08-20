@@ -159,6 +159,12 @@ queue_info_refresh_interval = "30s"
 draft_retention_duration = "360h"
 # How often to check for offline conversations in database to send continuity emails
 continuity_scan_interval = "5m"
+# How long to wait for a visitor reply after an agent's last message before
+# sending the "no reply timeout" message (as the assigned agent) and closing
+# the conversation
+no_reply_timeout = "5m"
+# How often to scan for conversations that have exceeded the no reply timeout
+no_reply_timeout_scan_interval = "30s"
 
 [sla]
 # How often to evaluate SLA compliance for conversations

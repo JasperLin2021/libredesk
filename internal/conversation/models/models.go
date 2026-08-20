@@ -57,6 +57,11 @@ var (
 	// computed queue position for the visitor waiting for a human agent.
 	ConversationMetaQueueInfo = "queue_info"
 
+	// ConversationMetaNoReplyTimeoutSent is the conversation meta key marking
+	// that the "no reply timeout" message has already been handled for this
+	// conversation, so the periodic scanner skips it.
+	ConversationMetaNoReplyTimeoutSent = "no_reply_timeout_sent"
+
 	ActivityStatusChange       = "status_change"
 	ActivityPriorityChange     = "priority_change"
 	ActivityAssignedUserChange = "assigned_user_change"

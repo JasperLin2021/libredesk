@@ -95,6 +95,17 @@
               </FormItem>
             </FormField>
 
+            <FormField v-slot="{ componentField }" name="no_reply_timeout_reply">
+              <FormItem>
+                <FormLabel>{{ $t('admin.quickReply.noReplyTimeoutReply') }}</FormLabel>
+                <FormControl>
+                  <Textarea rows="2" v-bind="componentField" />
+                </FormControl>
+                <FormDescription>{{ $t('admin.quickReply.noReplyTimeoutReply.description') }}</FormDescription>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+
             <div class="flex items-center gap-3">
               <Button type="submit" :disabled="isSaving">
                 {{ isSaving ? $t('globals.messages.saving') : $t('globals.terms.save') }}
@@ -171,7 +182,8 @@ const formSchema = z.object({
   transfer_keyword: z.string().min(1, t('globals.messages.empty', { name: t('admin.quickReply.transferKeyword') })),
   queue_reply: z.string(),
   assigned_reply: z.string(),
-  closed_reply: z.string()
+  closed_reply: z.string(),
+  no_reply_timeout_reply: z.string()
 })
 
 const form = useForm({
@@ -187,7 +199,8 @@ const loadConfig = async (inboxId) => {
     transfer_keyword: config.value.transfer_keyword || '我要转人工',
     queue_reply: config.value.queue_reply || '',
     assigned_reply: config.value.assigned_reply || '',
-    closed_reply: config.value.closed_reply || ''
+    closed_reply: config.value.closed_reply || '',
+    no_reply_timeout_reply: config.value.no_reply_timeout_reply || ''
   })
 }
 
@@ -214,6 +227,7 @@ const saveConfig = async (extra = {}) => {
       queue_reply: form.values.queue_reply,
       assigned_reply: form.values.assigned_reply,
       closed_reply: form.values.closed_reply,
+      no_reply_timeout_reply: form.values.no_reply_timeout_reply,
       enabled: config.value.enabled,
       ...extra
     }

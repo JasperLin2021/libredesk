@@ -41,6 +41,9 @@ type ConversationService interface {
 	// RefreshWaitingQueueInfo recomputes the queue count for every conversation
 	// waiting for a human agent and pushes the updated count to their widgets.
 	RefreshWaitingQueueInfo() error
+	// CloseConversation closes the given conversation on behalf of the system
+	// user. Closing a conversation triggers the configured closed reply.
+	CloseConversation(uuid string) error
 }
 
 var (
@@ -117,9 +120,9 @@ func (m *Manager) GetConfig(inboxID int) (models.InboxQuickReplyConfig, error) {
 }
 
 // UpsertConfig creates or updates the quick reply config for the given inbox.
-func (m *Manager) UpsertConfig(inboxID int, welcomeMessage, transferKeyword, queueReply, assignedReply, closedReply string, enabled bool) (models.InboxQuickReplyConfig, error) {
+func (m *Manager) UpsertConfig(inboxID int, welcomeMessage, transferKeyword, queueReply, assignedReply, closedReply, noReplyTimeoutReply string, enabled bool) (models.InboxQuickReplyConfig, error) {
 	var cfg models.InboxQuickReplyConfig
-	if err := m.q.UpsertConfig.Get(&cfg, inboxID, welcomeMessage, transferKeyword, queueReply, assignedReply, closedReply, enabled); err != nil {
+	if err := m.q.UpsertConfig.Get(&cfg, inboxID, welcomeMessage, transferKeyword, queueReply, assignedReply, closedReply, noReplyTimeoutReply, enabled); err != nil {
 		if dbutil.IsForeignKeyError(err) {
 			return cfg, envelope.NewError(envelope.InputError, m.i18n.T("validation.notFoundInbox"), nil)
 		}
@@ -507,6 +510,58 @@ func (m *Manager) HandleConversationClosed(conversation cmodels.Conversation) er
 
 	_, err = m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.ClosedReply, nil)
 	return err
+}
+
+// HandleNoReplyTimeout handles a conversation in which the visitor has not
+// replied within the configured no-reply timeout: it sends the configured
+// "no reply timeout" message on behalf of the assigned agent and then closes
+// the conversation (which triggers the configured closed reply through the
+// regular status-change pipeline). Each conversation is handled at most once,
+// guarded by the no_reply_timeout_sent conversation meta marker.
+func (m *Manager) HandleNoReplyTimeout(conversation cmodels.Conversation) error {
+	if m.conv == nil {
+		return nil
+	}
+
+	// Only assigned-to-agent conversations are eligible.
+	if !conversation.AssignedUserID.Valid {
+		return nil
+	}
+
+	// Guard against duplicate handling (e.g. overlapping scanner cycles).
+	meta, err := m.conv.GetConversationMeta(conversation.UUID)
+	if err != nil {
+		m.lo.Error("error fetching conversation meta for no reply timeout", "conversation_uuid", conversation.UUID, "error", err)
+		return err
+	}
+	if sent, _ := meta[cmodels.ConversationMetaNoReplyTimeoutSent].(bool); sent {
+		return nil
+	}
+
+	// Mark the conversation as handled before sending so that concurrent
+	// scanner cycles never send the message twice.
+	if err := m.conv.UpdateConversationMeta(conversation.UUID, map[string]any{cmodels.ConversationMetaNoReplyTimeoutSent: true}); err != nil {
+		m.lo.Error("error marking no reply timeout as handled", "conversation_uuid", conversation.UUID, "error", err)
+		return err
+	}
+
+	// Send the "no reply timeout" message on behalf of the assigned agent when
+	// configured; otherwise skip straight to closing the conversation so the
+	// closed reply still fires.
+	if cfg, err := m.GetConfig(conversation.InboxID); err == nil && cfg.Enabled && strings.TrimSpace(cfg.NoReplyTimeoutReply) != "" {
+		if _, err := m.conv.SendReplyAsUser(conversation.AssignedUserID.Int, conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.NoReplyTimeoutReply, nil); err != nil {
+			// A send failure must not block the conversation from being closed.
+			m.lo.Error("error sending no reply timeout message as agent", "conversation_uuid", conversation.UUID, "assigned_user_id", conversation.AssignedUserID.Int, "error", err)
+		}
+	}
+
+	// Close the conversation. This runs through the regular status-change
+	// pipeline and triggers the configured closed reply afterwards.
+	if err := m.conv.CloseConversation(conversation.UUID); err != nil {
+		m.lo.Error("error closing conversation after no reply timeout", "conversation_uuid", conversation.UUID, "error", err)
+		return err
+	}
+	return nil
 }
 
 // handleTransferRequest sends the queue reply with the current queue position

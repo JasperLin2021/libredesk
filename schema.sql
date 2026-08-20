@@ -323,6 +323,7 @@ CREATE TABLE inbox_quick_reply_configs (
     queue_reply TEXT NULL,
     assigned_reply TEXT NULL,
     closed_reply TEXT NULL,
+    no_reply_timeout_reply TEXT NULL,
     enabled BOOL DEFAULT FALSE NOT NULL,
     CONSTRAINT constraint_inbox_quick_reply_configs_on_inbox_id UNIQUE (inbox_id)
 );

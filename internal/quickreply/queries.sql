@@ -1,12 +1,15 @@
 -- name: get-config
+-- COALESCE the nullable TEXT columns so that legacy NULL values scan into
+-- Go string fields without errors.
 select
     id,
     inbox_id,
-    welcome_message,
+    COALESCE(welcome_message, '') AS welcome_message,
     transfer_keyword,
-    queue_reply,
-    assigned_reply,
-    closed_reply,
+    COALESCE(queue_reply, '') AS queue_reply,
+    COALESCE(assigned_reply, '') AS assigned_reply,
+    COALESCE(closed_reply, '') AS closed_reply,
+    COALESCE(no_reply_timeout_reply, '') AS no_reply_timeout_reply,
     enabled,
     created_at,
     updated_at
@@ -24,10 +27,11 @@ insert into
         queue_reply,
         assigned_reply,
         closed_reply,
+        no_reply_timeout_reply,
         enabled
     )
 values
-    ($1, $2, $3, $4, $5, $6, $7)
+    ($1, $2, $3, $4, $5, $6, $7, $8)
 on conflict (inbox_id) do
 update
 set
@@ -36,6 +40,7 @@ set
     queue_reply = excluded.queue_reply,
     assigned_reply = excluded.assigned_reply,
     closed_reply = excluded.closed_reply,
+    no_reply_timeout_reply = excluded.no_reply_timeout_reply,
     enabled = excluded.enabled,
     updated_at = now()
 returning

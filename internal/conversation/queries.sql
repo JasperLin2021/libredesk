@@ -1072,3 +1072,21 @@ WHERE status_id = (SELECT id FROM conversation_statuses WHERE name = 'Open')
   AND assigned_user_id IS NULL
   AND assigned_team_id IS NULL
   AND meta->>'bot_human_requested' = 'true';
+
+-- name: get-stale-agent-conversations
+-- Returns open conversations assigned to a specific agent whose last message
+-- is an agent message (i.e. the agent replied and the visitor has not replied
+-- since) and whose last real agent message (excluding system auto replies)
+-- is older than the given timeout. $1 is an interval string (e.g. '5m0s').
+SELECT c.uuid, c.inbox_id, c.contact_id, c.assigned_user_id
+FROM conversations c
+JOIN conversation_statuses cs ON cs.id = c.status_id
+WHERE c.assigned_user_id IS NOT NULL
+  AND cs.name = 'Open'
+  AND (c.meta->>'no_reply_timeout_sent') IS DISTINCT FROM 'true'
+  AND (SELECT cm.sender_type FROM conversation_messages cm
+       WHERE cm.conversation_id = c.id ORDER BY cm.id DESC LIMIT 1) = 'agent'
+  AND (SELECT MAX(cm.created_at) FROM conversation_messages cm
+       JOIN users u ON u.id = cm.sender_id
+       WHERE cm.conversation_id = c.id AND cm.sender_type = 'agent' AND u.email <> 'System'
+      ) < NOW() - $1::interval;
