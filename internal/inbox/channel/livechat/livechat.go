@@ -89,6 +89,7 @@ type Config struct {
 	} `json:"launcher"`
 	LogoURL    string `json:"logo_url"`
 	AvatarURL  string `json:"avatar_url"`
+	BotName    string `json:"bot_name"`
 	Visitors   struct {
 		AllowStartConversation           bool   `json:"allow_start_conversation"`
 		PreventMultipleConversations     bool   `json:"prevent_multiple_conversations"`

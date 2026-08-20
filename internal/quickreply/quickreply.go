@@ -378,15 +378,6 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 		return nil, nil
 	}
 
-	// Skip when the visitor has already requested a transfer to a human agent.
-	meta, err := m.conv.GetConversationMeta(conversation.UUID)
-	if err != nil {
-		return nil, nil
-	}
-	if requested, _ := meta[cmodels.ConversationMetaBotHumanRequested].(bool); requested {
-		return nil, nil
-	}
-
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return nil, nil
@@ -397,7 +388,10 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 		return nil, m.handleTransferRequest(conversation, cfg)
 	}
 
-	// Match against configured topics and questions.
+	// Match against configured topics and questions. Topic / question cards clicked
+	// by the visitor always get a reply, even if the visitor previously requested a
+	// transfer to a human agent, so that the auto-reply flow keeps working until a
+	// human agent actually takes over the conversation.
 	topics, err := m.GetTopicsWithQuestions(conversation.InboxID)
 	if err != nil {
 		return nil, nil
@@ -414,7 +408,9 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 			}
 			return nil, nil
 		}
-		// Exact question match: send the answer.
+	}
+	// Exact question match: send the answer.
+	for _, topic := range topics {
 		for _, question := range topic.Questions {
 			if question.Question == content {
 				msg, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, question.Answer, nil)
@@ -424,6 +420,17 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 				return []cmodels.Message{msg}, nil
 			}
 		}
+	}
+
+	// Skip free-form auto replies once the visitor has requested a transfer to a
+	// human agent. Only exact topic / question matches above are honoured in that
+	// state; random text no longer triggers automatic replies.
+	meta, err := m.conv.GetConversationMeta(conversation.UUID)
+	if err != nil {
+		return nil, nil
+	}
+	if requested, _ := meta[cmodels.ConversationMetaBotHumanRequested].(bool); requested {
+		return nil, nil
 	}
 	return nil, nil
 }

@@ -1,35 +1,39 @@
 <template>
   <div class="flex flex-col items-center justify-center">
-    <h3 class="text-base font-bold text-foreground">
+    <h3 class="text-lg font-bold text-foreground">
       {{ chatTitle.name }}
     </h3>
-      <p v-if="chatTitle.expectation" class="text-xs text-muted-foreground">
-        {{ chatTitle.expectation }}
-      </p>
-      <p class="text-xs text-muted-foreground">
-        <!-- Show business hours status meaning we are out of business hours -->
-        <span v-if="businessHoursStatus">
-          {{ businessHoursStatus }}
-        </span>
+    <p v-if="chatTitle.expectation" class="text-xs text-muted-foreground">
+      {{ chatTitle.expectation }}
+    </p>
+    <p class="text-xs text-muted-foreground">
+      <!-- Show business hours status meaning we are out of business hours -->
+      <span v-if="businessHoursStatus">
+        {{ businessHoursStatus }}
+      </span>
+      <span
+        v-else-if="
+          chatTitle.availability_status === 'online' || chatTitle.availability_status === 'away'
+        "
+      >
         <span
-          v-else-if="
-            chatTitle.availability_status === 'online' || chatTitle.availability_status === 'away'
-          "
-        >
-          <span
-            class="inline-block w-2 h-2 rounded-full mr-1"
-            :class="{
-              'bg-success': chatTitle.availability_status === 'online',
-              'bg-warning': chatTitle.availability_status === 'away'
-            }"
-          ></span>
-          {{ chatTitle.availability_status === 'online' ? $t('globals.terms.online') : $t('globals.terms.away') }}
-        </span>
-        <span v-else-if="chatStore.currentConversation?.assignee?.active_at">
-          {{ $t('globals.terms.active') }}
-          {{ getRelativeTime(chatStore.currentConversation?.assignee?.active_at).toLowerCase() }}
-        </span>
-      </p>
+          class="inline-block w-2 h-2 rounded-full mr-1"
+          :class="{
+            'bg-success': chatTitle.availability_status === 'online',
+            'bg-warning': chatTitle.availability_status === 'away'
+          }"
+        ></span>
+        {{
+          chatTitle.availability_status === 'online'
+            ? $t('globals.terms.online')
+            : $t('globals.terms.away')
+        }}
+      </span>
+      <span v-else-if="chatStore.currentConversation?.assignee?.active_at">
+        {{ $t('globals.terms.active') }}
+        {{ getRelativeTime(chatStore.currentConversation?.assignee?.active_at).toLowerCase() }}
+      </span>
+    </p>
   </div>
 </template>
 
@@ -107,7 +111,9 @@ const chatTitle = computed(() => {
   // Only show the inbox name at the top of the chat.
   return {
     name: config.brand_name,
-    availability_status: assignee?.availability_status?.startsWith('away') ? 'away' : assignee?.availability_status,
+    availability_status: assignee?.availability_status?.startsWith('away')
+      ? 'away'
+      : assignee?.availability_status,
     expectation: assignee?.expectation || '',
     hasAssignee: Boolean(assignee?.id && assignee?.id > 0)
   }

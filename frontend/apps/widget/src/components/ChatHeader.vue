@@ -1,20 +1,29 @@
 <template>
   <div class="flex items-center p-2 border-b border-border bg-background gap-3 relative">
     <div class="flex items-center gap-2 justify-start">
-      <Button @click="$emit('goBack')" variant="ghost" size="sm" :aria-label="$t('globals.messages.goBack')">
+      <Button
+        @click="$emit('goBack')"
+        variant="ghost"
+        size="sm"
+        :aria-label="$t('globals.messages.goBack')"
+      >
         <ArrowLeft />
       </Button>
+    </div>
+    <div class="flex items-center gap-2 flex-1 justify-center min-w-0">
       <ChatTitle />
     </div>
-    <div class="flex items-center gap-2 ml-auto">
+    <div class="flex items-center gap-2 justify-end">
       <!-- Expand/Collapse Button - only visible on desktop -->
-      <Button 
-        v-if="!widgetStore.isMobileFullScreen" 
-        @click="widgetStore.toggleExpand" 
-        variant="ghost" 
+      <Button
+        v-if="!widgetStore.isMobileFullScreen"
+        @click="widgetStore.toggleExpand"
+        variant="ghost"
         size="sm"
         :title="widgetStore.isExpanded ? $t('globals.terms.collapse') : $t('globals.terms.expand')"
-        :aria-label="widgetStore.isExpanded ? $t('globals.terms.collapse') : $t('globals.terms.expand')"
+        :aria-label="
+          widgetStore.isExpanded ? $t('globals.terms.collapse') : $t('globals.terms.expand')
+        "
       >
         <Maximize2 v-if="!widgetStore.isExpanded" class="w-4 h-4" />
         <Minimize2 v-else class="w-4 h-4" />
