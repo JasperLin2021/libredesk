@@ -23,24 +23,17 @@
               >
                 <ArrowLeft :size="18" />
               </button>
-              <div class="flex items-center gap-2">
-                <div
-                  class="size-10 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center overflow-hidden shrink-0"
-                >
-                  <img :src="widgetAvatar" alt="" class="w-full h-full object-cover" />
-                </div>
-                <div class="flex flex-col">
-                  <h3 class="text-base font-bold leading-tight">
-                    {{ config.brand_name || $t('globals.terms.name') }}
-                  </h3>
-                  <p class="text-xs text-muted-foreground flex items-center gap-1">
-                    <template v-if="replyExpectation">{{ replyExpectation }}</template>
-                    <template v-else>
-                      <span class="inline-block w-2 h-2 rounded-full bg-success"></span>
-                      {{ $t('globals.terms.online', 1) }}
-                    </template>
-                  </p>
-                </div>
+              <div class="flex flex-col items-start">
+                <h3 class="text-base font-bold leading-tight">
+                  {{ config.brand_name || $t('globals.terms.name') }}
+                </h3>
+                <p class="text-xs text-muted-foreground flex items-center gap-1">
+                  <template v-if="replyExpectation">{{ replyExpectation }}</template>
+                  <template v-else>
+                    <span class="inline-block w-2 h-2 rounded-full bg-success"></span>
+                    {{ $t('globals.terms.online', 1) }}
+                  </template>
+                </p>
               </div>
               <div
                 class="ml-auto flex items-center justify-center size-8 rounded-md text-muted-foreground"

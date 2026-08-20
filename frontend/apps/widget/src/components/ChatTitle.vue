@@ -1,13 +1,8 @@
 <template>
-  <div class="flex items-center justify-center gap-3">
-    <Avatar class="size-10">
-      <AvatarImage :src="chatTitle.avatarUrl" />
-      <AvatarFallback>{{ chatTitle.avatarFallback }}</AvatarFallback>
-    </Avatar>
-    <div class="flex flex-col">
-      <h3 class="text-base font-bold text-foreground">
-        {{ chatTitle.name }}
-      </h3>
+  <div class="flex flex-col items-center justify-center">
+    <h3 class="text-base font-bold text-foreground">
+      {{ chatTitle.name }}
+    </h3>
       <p v-if="chatTitle.expectation" class="text-xs text-muted-foreground">
         {{ chatTitle.expectation }}
       </p>
@@ -35,7 +30,6 @@
           {{ getRelativeTime(chatStore.currentConversation?.assignee?.active_at).toLowerCase() }}
         </span>
       </p>
-    </div>
   </div>
 </template>
 
@@ -43,7 +37,6 @@
 import { useChatStore } from '@widget/store/chat.js'
 import { useWidgetStore } from '@widget/store/widget.js'
 import { computed } from 'vue'
-import { Avatar, AvatarFallback, AvatarImage } from '@shared-ui/components/ui/avatar'
 import { getRelativeTime } from '@shared-ui/utils/datetime.js'
 import { useBusinessHours } from '@widget/composables/useBusinessHours.js'
 import { useI18n } from 'vue-i18n'
@@ -104,8 +97,6 @@ const chatTitle = computed(() => {
   if (chatStore.isLoadingConversation) {
     return {
       name: t('globals.terms.loading'),
-      avatarUrl: '',
-      avatarFallback: '',
       availability_status: null,
       hasAssignee: false
     }
@@ -113,23 +104,12 @@ const chatTitle = computed(() => {
 
   const config = widgetStore.config
   const assignee = chatStore.currentConversation?.assignee
-  if (assignee?.id && assignee?.id > 0) {
-    return {
-      name: assignee.first_name,
-      avatarUrl: assignee.avatar_url || '',
-      avatarFallback: assignee.first_name.charAt(0).toUpperCase(),
-      availability_status: assignee.availability_status?.startsWith('away') ? 'away' : assignee.availability_status,
-      expectation: assignee.expectation || '',
-      hasAssignee: true
-    }
-  }
-  // Default brand values
+  // Only show the inbox name at the top of the chat.
   return {
     name: config.brand_name,
-    avatarUrl: config.avatar_url || config.launcher?.logo_url || '',
-    avatarFallback: config.brand_name.charAt(0).toUpperCase(),
-    availability_status: null,
-    hasAssignee: false
+    availability_status: assignee?.availability_status?.startsWith('away') ? 'away' : assignee?.availability_status,
+    expectation: assignee?.expectation || '',
+    hasAssignee: Boolean(assignee?.id && assignee?.id > 0)
   }
 })
 </script>
