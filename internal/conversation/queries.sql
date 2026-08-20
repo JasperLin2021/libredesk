@@ -376,7 +376,8 @@ SELECT
     COALESCE(au.id, 0) as "assignee.id",
     COALESCE(au.last_name, '') as "assignee.last_name",
     COALESCE(au.type::TEXT, '') as "assignee.type",
-    COALESCE(aa.expectation, '') as "assignee.expectation"
+    COALESCE(aa.expectation, '') as "assignee.expectation",
+    c.meta
 FROM conversations c
 INNER JOIN inboxes inb on c.inbox_id = inb.id
 LEFT JOIN conversation_statuses cs ON c.status_id = cs.id
@@ -412,7 +413,8 @@ SELECT
     COALESCE(au.first_name, '') as "assignee.first_name",
     COALESCE(au.id, 0) as "assignee.id",
     COALESCE(au.last_name, '') as "assignee.last_name",
-    COALESCE(au.type::TEXT, '') as "assignee.type"
+    COALESCE(au.type::TEXT, '') as "assignee.type",
+    c.meta
 FROM conversations c
 INNER JOIN inboxes inb ON c.inbox_id = inb.id
 INNER JOIN users con ON c.contact_id = con.id
@@ -1062,3 +1064,11 @@ FROM conversations
 WHERE status_id = (SELECT id FROM conversation_statuses WHERE name = 'Open')
   AND assigned_user_id IS NULL
   AND assigned_team_id IS NULL;
+
+-- name: get-waiting-human-conversations
+SELECT uuid, contact_id, inbox_id
+FROM conversations
+WHERE status_id = (SELECT id FROM conversation_statuses WHERE name = 'Open')
+  AND assigned_user_id IS NULL
+  AND assigned_team_id IS NULL
+  AND meta->>'bot_human_requested' = 'true';

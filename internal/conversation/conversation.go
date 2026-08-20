@@ -136,6 +136,14 @@ func (c *Manager) SendAutoReply(inboxID, contactID int, conversationUUID, conten
 	return c.QueueReply(nil, inboxID, systemUser.ID, contactID, conversationUUID, content, nil, nil, nil, metaMap)
 }
 
+// SendReplyAsUser sends a message on behalf of the given agent user. It is used
+// to deliver the configured "assigned" quick reply from the agent that just took
+// over the conversation, so the widget renders their avatar and name. It
+// implements the quickreply.ConversationService interface.
+func (c *Manager) SendReplyAsUser(userID, inboxID, contactID int, conversationUUID, content string, metaMap map[string]any) (models.Message, error) {
+	return c.QueueReply(nil, inboxID, userID, contactID, conversationUUID, content, nil, nil, nil, metaMap)
+}
+
 // GetConversationMeta returns the conversation's meta as a map. It implements
 // the quickreply.ConversationService interface.
 func (c *Manager) GetConversationMeta(conversationUUID string) (map[string]any, error) {
@@ -189,6 +197,47 @@ func (c *Manager) CountOpenUnassignedConversations() (int, error) {
 		return 0, envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
 	}
 	return count, nil
+}
+
+// waitingHumanConversation is a single row of the get-waiting-human-conversations
+// query: every open conversation that is still waiting for a human agent.
+type waitingHumanConversation struct {
+	UUID      string `db:"uuid"`
+	ContactID int    `db:"contact_id"`
+	InboxID   int    `db:"inbox_id"`
+}
+
+// RefreshWaitingQueueInfo recomputes the queue count for every conversation that
+// is waiting for a human agent, persists it into their meta and pushes the
+// updated count to their widget clients so the persistent queue footer stays in
+// sync. It implements the quickreply.ConversationService interface.
+func (c *Manager) RefreshWaitingQueueInfo() error {
+	count, err := c.CountOpenUnassignedConversations()
+	if err != nil {
+		return err
+	}
+
+	var waiting []waitingHumanConversation
+	if err := c.q.GetWaitingHumanConversations.Select(&waiting); err != nil {
+		c.lo.Error("error fetching waiting human conversations", "error", err)
+		return envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+
+	queueInfo := map[string]any{"count": count}
+	for _, conv := range waiting {
+		if err := c.UpdateConversationMeta(conv.UUID, map[string]any{
+			models.ConversationMetaQueueInfo: queueInfo,
+		}); err != nil {
+			c.lo.Error("error updating waiting conversation queue info meta", "uuid", conv.UUID, "error", err)
+			continue
+		}
+		c.BroadcastConversationToWidget(conv.UUID, conv.ContactID, conv.InboxID, map[string]any{
+			"meta": map[string]any{
+				models.ConversationMetaQueueInfo: queueInfo,
+			},
+		})
+	}
+	return nil
 }
 
 // WidgetConversationView represents the conversation data for widget clients
@@ -444,6 +493,7 @@ type queries struct {
 	UpdateConversationMeta             *sqlx.Stmt `query:"update-conversation-meta"`
 	DeleteConversationMetaKey          *sqlx.Stmt `query:"delete-conversation-meta-key"`
 	CountOpenUnassignedConversations   *sqlx.Stmt `query:"count-open-unassigned-conversations"`
+	GetWaitingHumanConversations       *sqlx.Stmt `query:"get-waiting-human-conversations"`
 }
 
 // CreateConversation creates a new conversation. If maxConversations > 0, the insert is
@@ -879,6 +929,12 @@ func (c *Manager) afterUserAssignedHooks(uuid string, assigneeID int, actor umod
 		}
 	}
 
+	// Other conversations waiting for a human agent just lost a slot: refresh
+	// their queue count right away so their widgets stay in sync.
+	if err := c.RefreshWaitingQueueInfo(); err != nil {
+		c.lo.Error("error refreshing waiting queue info after assignment", "error", err)
+	}
+
 	if assigneeID != actor.ID {
 		if err := c.NotifyAssignment([]int{assigneeID}, conversation); err != nil {
 			c.lo.Error("error sending assignment notification", "error", err)
@@ -905,6 +961,11 @@ func (c *Manager) afterUserAssignedHooks(uuid string, assigneeID int, actor umod
 				"avatar_url":          agent.AvatarURL,
 				"availability_status": agent.AvailabilityStatus,
 				"expectation":         expectation,
+			},
+			// Clear the persisted queue info so the widget hides its queue
+			// footer as soon as the conversation gets assigned.
+			"meta": map[string]any{
+				models.ConversationMetaQueueInfo: nil,
 			},
 		})
 	}
@@ -963,9 +1024,23 @@ func (c *Manager) UpdateConversationTeamAssignee(uuid string, teamID int, actor 
 		c.automation.EvaluateConversationUpdateRules(conversation, amodels.EventConversationTeamAssigned, previousValues, actor)
 	}
 
+	// A team assignment ends the human-transfer queue wait (there is no
+	// specific agent yet): remove the persisted queue info so it cannot
+	// resurface, and push null to the widget so its queue footer hides.
+	if meta, mErr := c.GetConversationMeta(uuid); mErr == nil {
+		if _, ok := meta[models.ConversationMetaQueueInfo]; ok {
+			if err := c.DeleteConversationMetaKey(uuid, models.ConversationMetaQueueInfo); err != nil {
+				c.lo.Error("error clearing queue info meta on team assignment", "uuid", uuid, "error", err)
+			}
+		}
+	}
+
 	// Broadcast conversation update to widget clients.
 	c.BroadcastConversationToWidget(uuid, conversation.ContactID, conversation.InboxID, map[string]any{
 		"assigned_team_id": teamID,
+		"meta": map[string]any{
+			models.ConversationMetaQueueInfo: nil,
+		},
 	})
 
 	return nil
@@ -1171,6 +1246,11 @@ func (c *Manager) ReopenAndUnassignConversation(uuid string, contactID int, inbo
 		if _, ok := meta[models.ConversationMetaBotHumanRequested]; ok {
 			if err := c.DeleteConversationMetaKey(uuid, models.ConversationMetaBotHumanRequested); err != nil {
 				c.lo.Error("error clearing bot human requested meta on reopen", "uuid", uuid, "error", err)
+			}
+		}
+		if _, ok := meta[models.ConversationMetaQueueInfo]; ok {
+			if err := c.DeleteConversationMetaKey(uuid, models.ConversationMetaQueueInfo); err != nil {
+				c.lo.Error("error clearing queue info meta on reopen", "uuid", uuid, "error", err)
 			}
 		}
 	}

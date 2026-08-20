@@ -53,6 +53,10 @@ var (
 	// to a human agent.
 	ConversationMetaBotHumanRequested = "bot_human_requested"
 
+	// ConversationMetaQueueInfo is the conversation meta key holding the last
+	// computed queue position for the visitor waiting for a human agent.
+	ConversationMetaQueueInfo = "queue_info"
+
 	ActivityStatusChange       = "status_change"
 	ActivityPriorityChange     = "priority_change"
 	ActivityAssignedUserChange = "assigned_user_change"
@@ -103,6 +107,7 @@ type ChatConversation struct {
 	LastChatMessage    LastChatMessage   `db:"last_message" json:"last_message"`
 	UnreadMessageCount int               `db:"unread_message_count" json:"unread_message_count"`
 	Assignee           *umodels.ChatUser `db:"assignee" json:"assignee"`
+	Meta               json.RawMessage   `db:"meta" json:"meta"`
 }
 
 type ChatMessage struct {

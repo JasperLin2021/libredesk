@@ -152,6 +152,9 @@ allowed_cidrs = []
 [conversation]
 # How often to check for conversations to unsnooze
 unsnooze_interval = "5m"
+# How often to recompute and push the queue position to conversations waiting
+# for a human agent on the widget
+queue_info_refresh_interval = "30s"
 # How long to keep drafts before deleting them from the database. (e.g. "360h", "48h")
 draft_retention_duration = "360h"
 # How often to check for offline conversations in database to send continuity emails

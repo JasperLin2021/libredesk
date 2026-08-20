@@ -44,12 +44,12 @@
             </div>
 
             <!-- Avatar + bubble row. For auto-replies the bubble is indented to align with the
-                 bot name (avatar is rendered in the header row above instead). For user messages
-                 the avatar aligns with the top of the bubble. -->
+                 bot name (avatar is rendered in the header row above instead). The avatar always
+                 aligns with the top of the bubble, matching the user message layout. -->
             <div
               :class="[
                 'flex gap-2',
-                isUserMessage(message) ? 'flex-row-reverse items-start' : 'flex-row items-end',
+                isUserMessage(message) ? 'flex-row-reverse items-start' : 'flex-row items-start',
                 isAutoReply(message) && !isCsat(message) ? 'ml-10' : ''
               ]"
             >
@@ -222,6 +222,17 @@
       </div>
     </div>
 
+    <!-- Sticky queue position footer: stays visible below the messages until
+         the conversation is assigned to a human agent. -->
+    <div
+      v-if="showQueueInfoFooter"
+      role="status"
+      class="border-t border-amber-200 bg-amber-50 px-4 py-2.5 flex items-center justify-center gap-2 text-xs text-amber-800"
+    >
+      <Clock class="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+      <span>{{ $t('widget.queuePosition', { count: queueInfoCount }) }}</span>
+    </div>
+
     <!-- Sticky scroll to bottom button -->
     <ScrollToBottomButton
       :is-at-bottom="!hasUserScrolled"
@@ -287,6 +298,23 @@ const { hasUserScrolled, scrollToBottom, handleScroll } = useStickyScroll(
 const config = computed(() => widgetStore.config)
 const isTyping = computed(() => chatStore.isTyping)
 const isLoadingConversation = computed(() => chatStore.isLoadingConversation)
+
+// Persistent queue footer visibility. Shown while the current conversation is
+// still open, not yet assigned to any agent/team and the server has persisted a
+// numeric queue count. Once the conversation gets assigned, the broadcast sets
+// meta.queue_info to null (and assignee becomes non-empty), hiding the footer.
+const showQueueInfoFooter = computed(() => {
+  const conversation = chatStore.currentConversation
+  if (!conversation?.uuid) return false
+  if (conversation.status !== 'Open') return false
+  if (conversation.assignee) return false
+  const count = conversation.meta?.queue_info?.count
+  return typeof count === 'number'
+})
+
+const queueInfoCount = computed(() => {
+  return chatStore.currentConversation?.meta?.queue_info?.count ?? 0
+})
 
 const userStore = useUserStore()
 

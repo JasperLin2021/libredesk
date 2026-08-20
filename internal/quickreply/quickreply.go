@@ -36,6 +36,11 @@ type ConversationService interface {
 	// CountOpenUnassignedConversations returns the number of open conversations
 	// that are not assigned to any agent or team (used for queue position).
 	CountOpenUnassignedConversations() (int, error)
+	// SendReplyAsUser sends a message on behalf of the given agent user.
+	SendReplyAsUser(userID, inboxID, contactID int, conversationUUID, content string, metaMap map[string]any) (cmodels.Message, error)
+	// RefreshWaitingQueueInfo recomputes the queue count for every conversation
+	// waiting for a human agent and pushes the updated count to their widgets.
+	RefreshWaitingQueueInfo() error
 }
 
 var (
@@ -459,9 +464,16 @@ func (m *Manager) HandleUserAssigned(conversation cmodels.Conversation) error {
 	}
 
 	// Send the "you are now connected to a human agent" reply if configured.
+	// When the conversation is assigned to a specific agent the reply is sent
+	// on behalf of that agent so the widget shows their avatar and name;
+	// otherwise fall back to the system user.
 	cfg, err := m.GetConfig(conversation.InboxID)
 	if err == nil && cfg.Enabled && strings.TrimSpace(cfg.AssignedReply) != "" {
-		if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil); err != nil {
+		if conversation.AssignedUserID.Valid {
+			if _, err := m.conv.SendReplyAsUser(conversation.AssignedUserID.Int, conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil); err != nil {
+				m.lo.Error("error sending quick reply assigned message as agent", "conversation_uuid", conversation.UUID, "assigned_user_id", conversation.AssignedUserID.Int, "error", err)
+			}
+		} else if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil); err != nil {
 			m.lo.Error("error sending quick reply assigned message", "conversation_uuid", conversation.UUID, "error", err)
 		}
 	}
@@ -473,6 +485,11 @@ func (m *Manager) HandleUserAssigned(conversation cmodels.Conversation) error {
 	// and reopened (or unassigned) later.
 	if err := m.conv.DeleteConversationMetaKey(conversation.UUID, cmodels.ConversationMetaBotHumanRequested); err != nil {
 		m.lo.Error("error clearing quick reply transfer marker", "conversation_uuid", conversation.UUID, "error", err)
+	}
+	// Remove the persisted queue position; the widget hides its queue footer
+	// once the conversation is assigned.
+	if err := m.conv.DeleteConversationMetaKey(conversation.UUID, cmodels.ConversationMetaQueueInfo); err != nil {
+		m.lo.Error("error clearing quick reply queue info", "conversation_uuid", conversation.UUID, "error", err)
 	}
 	return nil
 }
@@ -505,13 +522,22 @@ func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg m
 		m.lo.Error("error sending quick reply queue message", "conversation_uuid", conversation.UUID, "error", err)
 	}
 
-	// Mark the conversation as having requested a transfer to a human agent.
+	// Persist the queue position and mark the conversation as having requested
+	// a transfer to a human agent. The queue_info meta drives the widget's
+	// persistent queue footer until the conversation gets assigned.
 	convMeta, err := m.conv.GetConversationMeta(conversation.UUID)
 	if err == nil {
 		convMeta[cmodels.ConversationMetaBotHumanRequested] = true
+		convMeta[cmodels.ConversationMetaQueueInfo] = map[string]any{"count": count}
 		if err := m.conv.UpdateConversationMeta(conversation.UUID, convMeta); err != nil {
 			m.lo.Error("error marking quick reply transfer request", "conversation_uuid", conversation.UUID, "error", err)
 		}
+	}
+
+	// Refresh queue info for all waiting conversations so the freshly created
+	// queue entry shows up immediately on other waiting widgets too.
+	if err := m.conv.RefreshWaitingQueueInfo(); err != nil {
+		m.lo.Error("error refreshing waiting queue info", "error", err)
 	}
 	return nil
 }

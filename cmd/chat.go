@@ -333,6 +333,11 @@ func handleChatInit(r *fastglue.Request) error {
 					app.lo.Error("error clearing bot human requested meta on widget init", "uuid", conversationUUID, "error", err)
 				}
 			}
+			if _, ok := convMeta[cmodels.ConversationMetaQueueInfo]; ok {
+				if err := app.conversation.DeleteConversationMetaKey(conversationUUID, cmodels.ConversationMetaQueueInfo); err != nil {
+					app.lo.Error("error clearing queue info meta on widget init", "uuid", conversationUUID, "error", err)
+				}
+			}
 		}
 
 		app.lo.Info("reusing existing conversation for user", "user_id", contactID, "conversation_uuid", conversationUUID)
@@ -663,6 +668,11 @@ func handleGetConversations(r *fastglue.Request) error {
 		if _, ok := convMeta[cmodels.ConversationMetaBotHumanRequested]; ok {
 			if err := app.conversation.DeleteConversationMetaKey(cc.UUID, cmodels.ConversationMetaBotHumanRequested); err != nil {
 				app.lo.Error("error clearing bot human requested meta on conversation list", "uuid", cc.UUID, "error", err)
+			}
+		}
+		if _, ok := convMeta[cmodels.ConversationMetaQueueInfo]; ok {
+			if err := app.conversation.DeleteConversationMetaKey(cc.UUID, cmodels.ConversationMetaQueueInfo); err != nil {
+				app.lo.Error("error clearing queue info meta on conversation list", "uuid", cc.UUID, "error", err)
 			}
 		}
 	}
