@@ -657,15 +657,35 @@ export const useConversationStore = defineStore('conversation', () => {
     return existing
   }
 
+  // Anonymous livechat widget sessions (type === 'visitor') are hidden from all
+  // agent lists. This guard mirrors the backend filter (users.type <> 'visitor')
+  // for realtime push events, which bypass the server-side query.
+  function isVisitorConversation (conv) {
+    return conv?.contact?.type === 'visitor' || conv?.type === 'visitor'
+  }
+
+  function removeConversationFromList (uuid) {
+    const idx = conversations.data?.findIndex(c => c.uuid === uuid)
+    if (!conversations.data || idx === undefined || idx < 0) return
+    conversations.data.splice(idx, 1)
+    conversations.total = Math.max(0, conversations.total - 1)
+  }
+
   function processConversationListResponse (response) {
     const apiResponse = response.data.data
     const newConversations = []
     for (const conv of apiResponse.results) {
+      if (isVisitorConversation(conv)) continue
       if (!mergeIntoList(conv.uuid, conv)) newConversations.push(conv)
     }
     conversations.page = Math.max(conversations.page, apiResponse.page)
     conversations.hasMore = apiResponse.total_pages > conversations.page
     if (!conversations.data) conversations.data = []
+    // Drop any visitor conversations that may have been pushed in by realtime
+    // events before the backend filter was in place.
+    if (apiResponse.page === 1) {
+      conversations.data = conversations.data.filter(c => !isVisitorConversation(c))
+    }
     if (apiResponse.page === 1) {
       conversations.data.unshift(...newConversations)
     } else {
@@ -960,6 +980,12 @@ export const useConversationStore = defineStore('conversation', () => {
 
   function handleConvPush (payload) {
     if (!payload || !payload.uuid) return
+    // Never surface visitor (anonymous livechat) sessions in agent lists.
+    // Remove them in case a realtime event pushed them in earlier.
+    if (isVisitorConversation(payload)) {
+      removeConversationFromList(payload.uuid)
+      return
+    }
     if (mergeIntoList(payload.uuid, payload)) {
       if (conversation.data?.uuid === payload.uuid) {
         deepMerge(conversation.data, payload)
@@ -975,6 +1001,10 @@ export const useConversationStore = defineStore('conversation', () => {
   }
 
   function mergeConversationUpdate (update) {
+    if (isVisitorConversation(update)) {
+      removeConversationFromList(update.uuid)
+      return
+    }
     if (conversation.data?.uuid === update.uuid) {
       deepMerge(conversation.data, update)
     }

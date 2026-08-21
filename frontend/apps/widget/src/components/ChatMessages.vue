@@ -30,32 +30,39 @@
             :key="message.uuid"
             :class="['flex flex-col gap-1', isUserMessage(message) ? 'items-end' : 'items-start']"
           >
-            <!-- Auto-reply header: avatar + bot name side-by-side (above the bubble).
-                 Queue-info bubbles still render the header because the bubble itself belongs
-                 to the auto-reply flow. CSAT bubbles use their own UI and skip this. -->
-            <div v-if="isAutoReply(message) && !isCsat(message)" class="flex items-center gap-2">
+            <!-- Sender header: avatar + name side-by-side above the bubble.
+                 Rendered for auto-replies (including queue-info bubbles) and real human agent
+                 messages so the name sits next to the avatar above the bubble, matching the
+                 reference design. CSAT bubbles use their own UI and skip this. -->
+            <div v-if="!isUserMessage(message) && !isCsat(message)" class="flex items-center gap-2">
               <Avatar class="size-8 flex-shrink-0">
                 <AvatarImage :src="getMessageAvatarUrl(message)" />
                 <AvatarFallback>{{ getMessageAvatarFallback(message) }}</AvatarFallback>
               </Avatar>
               <span class="text-sm font-medium text-foreground">
-                {{ config.bot_name || message.author.first_name }}
+                <template v-if="isAutoReply(message)">
+                  {{ config.bot_name || message.author.first_name }}
+                </template>
+                <template v-else>
+                  {{ message.author.first_name }} {{ message.author.last_name }}
+                </template>
               </span>
             </div>
 
-            <!-- Avatar + bubble row. For auto-replies the bubble is indented to align with the
-                 bot name (avatar is rendered in the header row above instead). The avatar always
-                 aligns with the top of the bubble, matching the user message layout. -->
+            <!-- Avatar + bubble row. The avatar is rendered in the header row above for all
+                 non-user messages, so it is skipped here and the bubble is indented to align
+                 with the sender name. For user messages the avatar remains inline on the
+                 right-hand side. The avatar always aligns with the top of the bubble. -->
             <div
               :class="[
                 'flex gap-2',
                 isUserMessage(message) ? 'flex-row-reverse items-start' : 'flex-row items-start',
-                isAutoReply(message) && !isCsat(message) ? 'ml-10' : ''
+                !isUserMessage(message) && !isCsat(message) ? 'ml-10' : ''
               ]"
             >
-              <!-- Avatar column (skipped for auto-replies — header row carries the avatar —
-                   and for CSAT which has its own dedicated UI). -->
-              <Avatar v-if="!isAutoReply(message) && !isCsat(message)" class="size-8 flex-shrink-0">
+              <!-- Avatar column: shown inline only for user messages. Auto-replies and real
+                   agent messages render the avatar in the header row above. CSAT has its own UI. -->
+              <Avatar v-if="isUserMessage(message) && !isCsat(message)" class="size-8 flex-shrink-0">
                 <AvatarImage :src="getMessageAvatarUrl(message)" />
                 <AvatarFallback>{{ getMessageAvatarFallback(message) }}</AvatarFallback>
               </Avatar>
@@ -163,18 +170,12 @@
               v-if="!isQueueInfo(message) && !isCsat(message)"
               :class="[
                 'text-[10px] text-muted-foreground flex items-center gap-2',
-                isAutoReply(message) ? 'h-4 ml-10' : ''
+                !isUserMessage(message) ? 'h-4 ml-10' : ''
               ]"
             >
-              <!-- Auto-replies: only show time below the bubble (name is rendered in the header row). -->
-              <span v-if="isAutoReply(message)">
-                {{ getMessageTime(message.created_at) }}
-              </span>
-
-              <!-- Agent name and time for human agent messages -->
-              <span v-else-if="message.author.type === 'agent'">
-                {{ message.author.first_name }} {{ message.author.last_name }}
-                •
+              <!-- Non-user messages (auto-replies + real human agents): only show time below
+                   the bubble because the sender name is already rendered in the header row. -->
+              <span v-if="!isUserMessage(message)">
                 {{ getMessageTime(message.created_at) }}
               </span>
 
@@ -332,11 +333,11 @@ const isAutoReply = (message) => {
   )
 }
 
-// Queue info and CSAT keep their original special layout without avatars.
-// Queue-info bubbles still belong to the auto-reply flow (transfer, etc.) so the header row
-// (avatar + bot name) is rendered — but the avatar inside the bubble row is skipped because
-// the bubble already has a built-in icon. CSAT bubbles are end-of-conversation UI and are
-// handled by a dedicated component, so they skip the per-message avatar / meta row entirely.
+// Queue-info bubbles belong to the auto-reply flow (transfer, etc.) so the header row
+// (inbox avatar + bot name) is rendered like any other auto reply — the avatar inside the
+// bubble row is skipped because the bubble already has a built-in icon. CSAT bubbles are
+// end-of-conversation UI and are handled by a dedicated component, so they skip the
+// per-message avatar / meta row entirely.
 const isQueueInfo = (message) => message.meta?.type === 'queue_info'
 const isCsat = (message) => message.meta?.is_csat === true
 
@@ -376,15 +377,16 @@ const inboxAvatarFallback = computed(() =>
   (widgetStore.config.bot_name || widgetStore.config.brand_name || 'L').charAt(0).toUpperCase()
 )
 
-// getMessageTime returns the absolute clock time in 24-hour format (e.g. "11:15") for display
-// under chat message bubbles. Older than ~1 day adds the date prefix for disambiguation.
+// getMessageTime returns the absolute clock time in 24-hour format with seconds
+// (e.g. "11:15:30") for display under chat message bubbles. Older than ~1 day
+// adds the date prefix for disambiguation.
 const getMessageTime = (timestamp) => {
   const date = new Date(timestamp)
   const oneDayMs = 24 * 60 * 60 * 1000
   if (Date.now() - date.getTime() >= oneDayMs) {
-    return format(date, 'd MMM, HH:mm')
+    return format(date, 'd MMM, HH:mm:ss')
   }
-  return format(date, 'HH:mm')
+  return format(date, 'HH:mm:ss')
 }
 
 const isQuotedTextVisible = (messageUuid) => {

@@ -105,17 +105,18 @@ const fetchInitialConversations = async (isReturningVisitor = false) => {
   }
 
   // Path B: has session token — try authenticated fetch first.
+  // Kick off auth/me in parallel with the conversation list fetch so user
+  // metadata (including avatar_url) is available as early as possible. Without
+  // this, a message sent right after a hard refresh would briefly show the
+  // fallback letter instead of the real avatar.
+  const mePromise = api
+    .getAuthMe()
+    .then((resp) => resp?.data?.data || null)
+    .catch(() => null)
   const success = await chatStore.fetchConversations()
   if (success) {
-    // Restore user metadata after a hard refresh. fetchConversations does not
-    // populate userStore, so without this the pending message avatar would fall
-    // back to the initial letter ("V") until the server responds.
-    try {
-      const meResp = await api.getAuthMe()
-      if (meResp?.data?.data) {
-        userStore.setUserMeta(meResp.data.data)
-      }
-    } catch { /* non-blocking */ }
+    const me = await mePromise
+    if (me) userStore.setUserMeta(me)
     if (chatStore.hasConversations) {
       try {
         await chatStore.loadConversation(chatStore.getConversations[0].uuid)

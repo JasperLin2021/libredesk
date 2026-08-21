@@ -153,6 +153,18 @@ const sendMessage = async () => {
   // Clear input field immediately
   newMessage.value = ''
 
+  // Ensure the current user's avatar is loaded before creating the pending
+  // message, so the bubble shows the real avatar right away instead of
+  // flashing the fallback letter while the server responds.
+  if (!userStore.avatar) {
+    try {
+      const meResp = await api.getAuthMe()
+      if (meResp?.data?.data) {
+        userStore.setUserMeta(meResp.data.data)
+      }
+    } catch { /* non-blocking: pending message falls back to initial letter */ }
+  }
+
   // Add pending message before API call so we can remove it on failure.
   let tempMessageID = null
   if (chatStore.currentConversation?.uuid) {
