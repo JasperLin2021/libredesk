@@ -1,4 +1,4 @@
-<template>
+ <template>
   <div class="flex flex-col relative flex-1 min-h-0">
     <!-- Loading conversation overlay -->
     <div v-if="isLoadingConversation" class="absolute inset-0 bg-background z-10" role="status">

@@ -723,8 +723,13 @@ func (m *Manager) InsertConversationActivity(activityType, conversationUUID, new
 		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
 	}
 
-	// Store the activity type structurally so callers can filter activities without parsing i18n content.
-	meta, _ := json.Marshal(map[string]string{"activity_type": activityType})
+	// Store the activity type and its structured data so callers can filter
+	// activities or render them without parsing the localized content.
+	meta, _ := json.Marshal(map[string]string{
+		"activity_type": activityType,
+		"new_value":     newValue,
+		"actor_name":    actor.FullName(),
+	})
 
 	message := models.Message{
 		Type:             models.MessageActivity,
@@ -755,28 +760,28 @@ func (m *Manager) getConversationUUIDFromMessageUUID(uuid string) (string, error
 	return conversationUUID, nil
 }
 
-// getMessageActivityContent generates activity content based on the activity type.
+// getMessageActivityContent generates localized activity content based on the activity type.
 func (m *Manager) getMessageActivityContent(activityType, newValue, actorName string) (string, error) {
 	var content = ""
 	switch activityType {
 	case models.ActivityAssignedUserChange:
-		content = fmt.Sprintf("Assigned to %s by %s", newValue, actorName)
+		content = m.i18n.Ts("conversation.activity.assignedUserChange", "newValue", newValue, "actorName", actorName)
 	case models.ActivityAssignedTeamChange:
-		content = fmt.Sprintf("Assigned to %s team by %s", newValue, actorName)
+		content = m.i18n.Ts("conversation.activity.assignedTeamChange", "newValue", newValue, "actorName", actorName)
 	case models.ActivitySelfAssign:
-		content = fmt.Sprintf("%s self-assigned this conversation", actorName)
+		content = m.i18n.Ts("conversation.activity.selfAssign", "actorName", actorName)
 	case models.ActivityPriorityChange:
-		content = fmt.Sprintf("%s set priority to %s", actorName, newValue)
+		content = m.i18n.Ts("conversation.activity.priorityChange", "actorName", actorName, "newValue", newValue)
 	case models.ActivityStatusChange:
-		content = fmt.Sprintf("%s marked the conversation as %s", actorName, newValue)
+		content = m.i18n.Ts("conversation.activity.statusChange", "actorName", actorName, "newValue", newValue)
 	case models.ActivityTagAdded:
-		content = fmt.Sprintf("%s added tag %s", actorName, newValue)
+		content = m.i18n.Ts("conversation.activity.tagAdded", "actorName", actorName, "newValue", newValue)
 	case models.ActivityTagRemoved:
-		content = fmt.Sprintf("%s removed tag %s", actorName, newValue)
+		content = m.i18n.Ts("conversation.activity.tagRemoved", "actorName", actorName, "newValue", newValue)
 	case models.ActivitySLASet:
-		content = fmt.Sprintf("%s set %s SLA policy", actorName, newValue)
+		content = m.i18n.Ts("conversation.activity.slaSet", "actorName", actorName, "newValue", newValue)
 	case models.ActivityParticipantAdded:
-		content = fmt.Sprintf("%s joined the conversation", newValue)
+		content = m.i18n.Ts("conversation.activity.participantAdded", "newValue", newValue)
 	default:
 		return "", fmt.Errorf("invalid activity type %s", activityType)
 	}
