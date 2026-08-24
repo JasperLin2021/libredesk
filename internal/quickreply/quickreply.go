@@ -53,6 +53,7 @@ var (
 
 type Manager struct {
 	q    queries
+	db   *sqlx.DB
 	lo   *logf.Logger
 	i18n *i18n.I18n
 	conv ConversationService
@@ -92,6 +93,7 @@ func New(opts Opts) (*Manager, error) {
 	}
 	return &Manager{
 		q:    q,
+		db:   opts.DB,
 		lo:   opts.Lo,
 		i18n: opts.I18n,
 		conv: opts.Conv,
@@ -311,6 +313,203 @@ func (m *Manager) DeleteQuestion(id int) error {
 		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
 	}
 	return nil
+}
+
+// ImportTopicItem represents a single topic to import together with its
+// questions. It mirrors the payload of the bulk import endpoint.
+type ImportTopicItem struct {
+	Name        string               `json:"name"`
+	Names       []string             `json:"names"`
+	HintMessage string               `json:"hint_message"`
+	Questions   []ImportQuestionItem `json:"questions"`
+}
+
+// ImportQuestionItem represents a single question (with its answer) to import.
+type ImportQuestionItem struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
+// ImportStats contains the number of topics and questions created or updated
+// during a bulk import.
+type ImportStats struct {
+	CreatedTopics    int `json:"created_topics"`
+	UpdatedTopics    int `json:"updated_topics"`
+	CreatedQuestions int `json:"created_questions"`
+	UpdatedQuestions int `json:"updated_questions"`
+}
+
+// ImportTopics bulk-imports topics (with their questions) into the given inbox
+// using an append-merge strategy:
+//   - A topic is matched by any of its names (primary name or aliases). When it
+//     matches an existing topic, that topic is updated: the names are merged
+//     (deduplicated, primary name first), the hint message is replaced and the
+//     questions are upserted by question text (existing questions are updated,
+//     new ones are created).
+//   - A topic that matches nothing is created together with all its questions.
+//   - No existing data is ever deleted.
+//
+// The whole import runs inside a single database transaction. On any error the
+// transaction is rolled back so a failed import never leaves partial writes.
+func (m *Manager) ImportTopics(inboxID int, topics []ImportTopicItem) (ImportStats, error) {
+	var stats ImportStats
+	tx, err := m.db.Beginx()
+	if err != nil {
+		m.lo.Error("error starting quick reply import transaction", "error", err)
+		return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// New topics are appended after the existing ones.
+	existingTopics, err := m.GetTopics(inboxID)
+	if err != nil {
+		return stats, err
+	}
+	nextTopicSort := len(existingTopics)
+
+	for _, item := range topics {
+		names := mergeTopicNames([]string{item.Name}, item.Names)
+		if len(names) == 0 {
+			continue
+		}
+
+		existing, err := m.resolveImportTopic(tx, inboxID, names)
+		if err != nil {
+			return stats, err
+		}
+
+		if existing.ID > 0 {
+			// Update the existing topic, merging names, hint message and questions.
+			mergedNames := mergeTopicNames(existing.Names, names)
+			if _, err := tx.Stmtx(m.q.UpdateTopic).Exec(existing.ID, mergedNames[0], pq.Array(mergedNames), item.HintMessage, existing.SortOrder); err != nil {
+				if dbutil.IsUniqueViolationError(err) {
+					return stats, envelope.NewError(envelope.ConflictError, m.i18n.T("errors.alreadyExistsQuickReplyTopic"), nil)
+				}
+				m.lo.Error("error updating quick reply topic during import", "error", err)
+				return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+			}
+			stats.UpdatedTopics++
+
+			var existingQuestions []models.QuickReplyQuestion
+			if err := tx.Stmtx(m.q.GetQuestions).Select(&existingQuestions, existing.ID); err != nil {
+				m.lo.Error("error fetching quick reply questions during import", "error", err)
+				return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+			}
+			nextQuestionSort := len(existingQuestions)
+			matched := make(map[int64]bool, len(existingQuestions))
+			for _, qi := range item.Questions {
+				target, found := findImportQuestion(existingQuestions, qi.Question, matched)
+				if found {
+					if _, err := tx.Stmtx(m.q.UpdateQuestion).Exec(target.ID, qi.Question, qi.Answer, target.SortOrder); err != nil {
+						m.lo.Error("error updating quick reply question during import", "error", err)
+						return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+					}
+					matched[target.ID] = true
+					stats.UpdatedQuestions++
+				} else {
+					if _, err := tx.Stmtx(m.q.InsertQuestion).Exec(existing.ID, qi.Question, qi.Answer, nextQuestionSort); err != nil {
+						m.lo.Error("error inserting quick reply question during import", "error", err)
+						return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+					}
+					nextQuestionSort++
+					stats.CreatedQuestions++
+				}
+			}
+		} else {
+			// Create a new topic together with its questions.
+			var topic models.QuickReplyTopic
+			if err := tx.Stmtx(m.q.InsertTopic).Get(&topic, inboxID, names[0], pq.Array(names), item.HintMessage, nextTopicSort); err != nil {
+				if dbutil.IsUniqueViolationError(err) {
+					return stats, envelope.NewError(envelope.ConflictError, m.i18n.T("errors.alreadyExistsQuickReplyTopic"), nil)
+				}
+				if dbutil.IsForeignKeyError(err) {
+					return stats, envelope.NewError(envelope.InputError, m.i18n.T("validation.notFoundInbox"), nil)
+				}
+				m.lo.Error("error inserting quick reply topic during import", "error", err)
+				return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+			}
+			stats.CreatedTopics++
+			nextTopicSort++
+
+			for idx, qi := range item.Questions {
+				if _, err := tx.Stmtx(m.q.InsertQuestion).Exec(topic.ID, qi.Question, qi.Answer, idx); err != nil {
+					m.lo.Error("error inserting quick reply question during import", "error", err)
+					return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+				}
+				stats.CreatedQuestions++
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		m.lo.Error("error committing quick reply import transaction", "error", err)
+		return stats, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return stats, nil
+}
+
+// resolveImportTopic returns the existing topic that the given names resolve to
+// within the inbox. Every name must resolve to the same topic; when different
+// names match different topics a conflict error is returned. A zero topic is
+// returned when no name matches anything.
+func (m *Manager) resolveImportTopic(tx *sqlx.Tx, inboxID int, names []string) (models.QuickReplyTopic, error) {
+	var matched models.QuickReplyTopic
+	for _, name := range names {
+		var topic models.QuickReplyTopic
+		if err := tx.Stmtx(m.q.GetTopicByName).Get(&topic, inboxID, name); err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			m.lo.Error("error fetching quick reply topic by name during import", "error", err)
+			return models.QuickReplyTopic{}, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+		}
+		if matched.ID == 0 {
+			matched = topic
+			continue
+		}
+		if topic.ID != matched.ID {
+			return models.QuickReplyTopic{}, envelope.NewError(envelope.ConflictError, m.i18n.T("quickReply.topicNameExists"), nil)
+		}
+	}
+	return matched, nil
+}
+
+// mergeTopicNames merges a primary name list with an extra name list into a
+// single deduplicated slice, preserving the order of the primary list and
+// appending unseen names from the extra list. Empty names are dropped.
+func mergeTopicNames(primary, extra []string) []string {
+	names := make([]string, 0, len(primary)+len(extra))
+	seen := make(map[string]bool, len(primary)+len(extra))
+	add := func(n string) {
+		n = strings.TrimSpace(n)
+		if n == "" || seen[n] {
+			return
+		}
+		seen[n] = true
+		names = append(names, n)
+	}
+	for _, n := range primary {
+		add(n)
+	}
+	for _, n := range extra {
+		add(n)
+	}
+	return names
+}
+
+// findImportQuestion returns the first existing question whose text matches the
+// imported question. Already matched questions are skipped so every existing
+// question is updated at most once.
+func findImportQuestion(questions []models.QuickReplyQuestion, question string, matched map[int64]bool) (models.QuickReplyQuestion, bool) {
+	for _, q := range questions {
+		if matched[q.ID] {
+			continue
+		}
+		if q.Question == question {
+			return q, true
+		}
+	}
+	return models.QuickReplyQuestion{}, false
 }
 
 // SendWelcomeReply sends the configured welcome message with quick reply topic

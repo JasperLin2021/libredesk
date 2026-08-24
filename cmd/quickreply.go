@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/abhinavxd/libredesk/internal/envelope"
+	"github.com/abhinavxd/libredesk/internal/quickreply"
 	"github.com/valyala/fasthttp"
 	"github.com/zerodha/fastglue"
 )
@@ -293,4 +294,85 @@ func handleDeleteQuickReplyQuestion(r *fastglue.Request) error {
 		return sendErrorEnvelope(r, err)
 	}
 	return r.SendEnvelope(true)
+}
+
+// quickReplyImportRequest is the request body for the bulk quick reply import
+// endpoint.
+type quickReplyImportRequest struct {
+	Topics []quickReplyImportTopic `json:"topics"`
+}
+
+// quickReplyImportTopic mirrors the backend model for a topic being imported.
+type quickReplyImportTopic struct {
+	Name        string                     `json:"name"`
+	Names       []string                   `json:"names"`
+	HintMessage string                     `json:"hint_message"`
+	Questions   []quickReplyImportQuestion `json:"questions"`
+}
+
+// quickReplyImportQuestion mirrors the backend model for a question being imported.
+type quickReplyImportQuestion struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+}
+
+// handleImportQuickReplyTopics bulk-imports topics (with their questions) into
+// the given inbox using an append-merge strategy. Each topic is matched by name
+// (including aliases) against existing topics: it is updated when a match is
+// found and created otherwise. No existing data is ever deleted.
+func handleImportQuickReplyTopics(r *fastglue.Request) error {
+	var (
+		app     = r.Context.(*App)
+		req     = quickReplyImportRequest{}
+		id, err = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
+	)
+	if err != nil || id == 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.invalidInboxID"), nil, envelope.InputError)
+	}
+	if err := r.Decode(&req, "json"); err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("errors.parsingRequest"), err.Error(), envelope.InputError)
+	}
+	if len(req.Topics) == 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("quickReply.noTopicsToImport"), nil, envelope.InputError)
+	}
+
+	// Validate and normalise every topic before touching the database.
+	items := make([]quickreply.ImportTopicItem, 0, len(req.Topics))
+	for _, t := range req.Topics {
+		t.Name = strings.TrimSpace(t.Name)
+		if t.Name == "" {
+			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.empty", "name", "`name`"), nil, envelope.InputError)
+		}
+		names := buildNames(t.Name, t.Names)
+		for _, n := range names {
+			if len(n) > 500 {
+				return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.inputTooLong"), nil, envelope.InputError)
+			}
+		}
+		item := quickreply.ImportTopicItem{
+			Name:        t.Name,
+			Names:       names,
+			HintMessage: strings.TrimSpace(t.HintMessage),
+		}
+		for _, q := range t.Questions {
+			q.Question = strings.TrimSpace(q.Question)
+			if q.Question == "" {
+				continue
+			}
+			if len(q.Question) > 500 || len(q.Answer) > maxQuickReplyFieldLength {
+				return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("validation.inputTooLong"), nil, envelope.InputError)
+			}
+			item.Questions = append(item.Questions, quickreply.ImportQuestionItem{
+				Question: q.Question,
+				Answer:   strings.TrimSpace(q.Answer),
+			})
+		}
+		items = append(items, item)
+	}
+
+	stats, err := app.quickReply.ImportTopics(id, items)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(stats)
 }

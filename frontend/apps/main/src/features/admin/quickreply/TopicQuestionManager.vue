@@ -3,10 +3,20 @@
     <Card>
     <CardHeader class="flex-row items-center justify-between space-y-0">
       <CardTitle>{{ $t('admin.quickReply.topics') }}</CardTitle>
-      <Button size="sm" variant="outline" @click="startAddTopic">
-        <Plus class="w-4 h-4 mr-1.5" />
-        {{ $t('admin.quickReply.addTopic') }}
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button size="sm" variant="outline" @click="exportTopics">
+          <Download class="w-4 h-4 mr-1.5" />
+          {{ $t('admin.quickReply.export') }}
+        </Button>
+        <Button size="sm" variant="outline" @click="openImportDialog">
+          <Upload class="w-4 h-4 mr-1.5" />
+          {{ $t('admin.quickReply.import') }}
+        </Button>
+        <Button size="sm" variant="outline" @click="startAddTopic">
+          <Plus class="w-4 h-4 mr-1.5" />
+          {{ $t('admin.quickReply.addTopic') }}
+        </Button>
+      </div>
     </CardHeader>
     <CardContent>
       <div class="grid gap-4 md:grid-cols-[300px_1fr]">
@@ -253,6 +263,81 @@
       </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <!-- Import dialog -->
+    <Dialog :open="importDialog.open" @update:open="importDialog.open = $event">
+    <DialogContent class="max-w-2xl">
+      <DialogHeader>
+        <DialogTitle>{{ $t('admin.quickReply.importTitle') }}</DialogTitle>
+        <p class="text-sm text-muted-foreground">{{ $t('admin.quickReply.importDescription') }}</p>
+      </DialogHeader>
+
+      <!-- File selection -->
+      <div
+        class="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-6 py-8 text-center cursor-pointer transition-colors hover:bg-muted/50"
+        @click="fileInputRef?.click()"
+        @dragover.prevent
+        @drop.prevent="handleFileDrop"
+      >
+        <input ref="fileInputRef" type="file" accept=".xlsx,.xls" class="hidden" @change="handleFileChange" />
+        <FileUp class="w-8 h-8 text-muted-foreground" />
+        <p class="text-sm font-medium">{{ $t('admin.quickReply.importDropzone') }}</p>
+        <p class="text-xs text-muted-foreground">{{ $t('admin.quickReply.importFileHint') }}</p>
+      </div>
+
+      <!-- Parse stats -->
+      <div
+        v-if="importDialog.fileName"
+        class="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm"
+      >
+        <FileSpreadsheet class="w-4 h-4 text-muted-foreground shrink-0" />
+        <span class="min-w-0 truncate">{{ importDialog.fileName }}</span>
+        <span class="ml-auto shrink-0 text-muted-foreground">
+          {{ $t('admin.quickReply.importParsed', { topics: importDialog.previewTopics.length, questions: totalImportedQuestions }) }}
+        </span>
+      </div>
+      <div v-if="importDialog.errorRows.length" class="rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
+        {{ $t('admin.quickReply.importEmptyRows', { rows: importDialog.errorRows.join(', ') }) }}
+      </div>
+
+      <!-- Preview table -->
+      <div v-if="importDialog.previewTopics.length" class="max-h-72 overflow-y-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{{ $t('admin.quickReply.topicPrimaryName') }}</TableHead>
+              <TableHead>{{ $t('admin.quickReply.topicAliases') }}</TableHead>
+              <TableHead>{{ $t('admin.quickReply.hintMessage') }}</TableHead>
+              <TableHead>{{ $t('admin.quickReply.question') }}</TableHead>
+              <TableHead>{{ $t('admin.quickReply.answer') }}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="(row, idx) in importPreviewRows" :key="idx">
+              <TableCell class="font-medium">{{ row.name }}</TableCell>
+              <TableCell class="text-muted-foreground">{{ row.aliases }}</TableCell>
+              <TableCell class="max-w-[10rem] truncate text-muted-foreground" :title="row.hint_message">{{ row.hint_message }}</TableCell>
+              <TableCell class="max-w-[10rem] truncate" :title="row.question">{{ row.question }}</TableCell>
+              <TableCell class="max-w-[14rem] truncate text-muted-foreground" :title="row.answer">{{ row.answer }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      <div v-else-if="importDialog.fileName" class="py-6 text-center text-sm text-muted-foreground">
+        {{ $t('admin.quickReply.importNoData') }}
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" :disabled="importing" @click="closeImportDialog">
+          {{ $t('admin.quickReply.importCancel') }}
+        </Button>
+        <Button :disabled="importing || importDialog.previewTopics.length === 0" @click="confirmImport">
+          <Loader2 v-if="importing" class="w-4 h-4 mr-1.5 animate-spin" />
+          {{ $t('admin.quickReply.importConfirm') }}
+        </Button>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
@@ -260,13 +345,35 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/api'
-import { Plus, Pencil, Trash2, ChevronUp, ChevronDown, Check, X } from 'lucide-vue-next'
+import * as XLSX from 'xlsx'
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  Check,
+  X,
+  Download,
+  Upload,
+  FileUp,
+  FileSpreadsheet,
+  Loader2
+} from 'lucide-vue-next'
 import { Card, CardHeader, CardTitle, CardContent } from '@shared-ui/components/ui/card'
 import { Button } from '@shared-ui/components/ui/button'
 import { Input } from '@shared-ui/components/ui/input'
 import { Textarea } from '@shared-ui/components/ui/textarea'
 import { Label } from '@shared-ui/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@shared-ui/components/ui/dialog'
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell
+} from '@shared-ui/components/ui/table'
 import { EMITTER_EVENTS } from '@/constants/emitterEvents.js'
 import { useEmitter } from '@/composables/useEmitter'
 import { handleHTTPError } from '@shared-ui/utils/http.js'
@@ -296,6 +403,9 @@ const editingTopicId = ref(null)
 const editingTopicName = ref('')
 const editingTopicAliases = ref([])
 const deleteDialog = reactive({ open: false, type: 'topic', item: null })
+const importDialog = reactive({ open: false, fileName: '', previewTopics: [], errorRows: [] })
+const fileInputRef = ref(null)
+const importing = ref(false)
 
 const selectedTopic = computed(() => topics.value.find((topic) => topic.id === selectedTopicId.value) || null)
 
@@ -518,6 +628,207 @@ const moveQuestion = async (question, direction) => {
     await loadTopics()
   } catch (error) {
     showError(error)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Export / Import (Excel)
+// ---------------------------------------------------------------------------
+// Maps a header cell (any supported language) to its column key.
+const normalizeHeader = (cell) => {
+  const s = String(cell ?? '').trim().toLowerCase()
+  if (['topic name', '主题名称', '主题'].includes(s)) return 'name'
+  if (['aliases', '别名'].includes(s)) return 'aliases'
+  if (['hint message', 'hint', '提示语', '提示文案'].includes(s)) return 'hint_message'
+  if (['question', '问题'].includes(s)) return 'question'
+  if (['answer', '答案'].includes(s)) return 'answer'
+  return null
+}
+
+const exportTopics = async () => {
+  try {
+    const resp = await api.getQuickReplyTopics(props.inboxId)
+    const list = resp.data.data || []
+    if (list.length === 0) {
+      emitter.emit(EMITTER_EVENTS.SHOW_TOAST, { description: t('admin.quickReply.exportEmpty') })
+      return
+    }
+    const aoa = [[t('admin.quickReply.topicPrimaryName'), t('admin.quickReply.topicAliases'), t('admin.quickReply.hintMessage'), t('admin.quickReply.question'), t('admin.quickReply.answer')]]
+    for (const topic of list) {
+      const aliases = (topic.names || []).slice(1).join('; ')
+      const questions = topic.questions || []
+      if (questions.length === 0) {
+        aoa.push([topic.name, aliases, topic.hint_message || '', '', ''])
+      } else {
+        for (const q of questions) {
+          aoa.push([topic.name, aliases, topic.hint_message || '', q.question, q.answer])
+        }
+      }
+    }
+    const worksheet = XLSX.utils.aoa_to_sheet(aoa)
+    worksheet['!cols'] = [{ wch: 24 }, { wch: 20 }, { wch: 30 }, { wch: 30 }, { wch: 40 }]
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Quick Replies')
+    XLSX.writeFile(workbook, `quick-reply-${props.inboxId}.xlsx`)
+  } catch (error) {
+    showError(error)
+  }
+}
+
+const totalImportedQuestions = computed(() =>
+  importDialog.previewTopics.reduce((sum, topic) => sum + (topic.questions?.length || 0), 0)
+)
+
+const importPreviewRows = computed(() => {
+  const rows = []
+  for (const item of importDialog.previewTopics) {
+    const aliases = (item.aliases || []).join('; ')
+    if (!item.questions?.length) {
+      rows.push({ name: item.name, aliases, hint_message: item.hint_message, question: '', answer: '' })
+    } else {
+      for (const q of item.questions) {
+        rows.push({ name: item.name, aliases, hint_message: item.hint_message, question: q.question, answer: q.answer })
+      }
+    }
+  }
+  return rows
+})
+
+const openImportDialog = () => {
+  importDialog.fileName = ''
+  importDialog.previewTopics = []
+  importDialog.errorRows = []
+  importDialog.open = true
+}
+
+const closeImportDialog = () => {
+  importDialog.open = false
+  importDialog.fileName = ''
+  importDialog.previewTopics = []
+  importDialog.errorRows = []
+  if (fileInputRef.value) fileInputRef.value.value = ''
+}
+
+const handleFileChange = (event) => {
+  const file = event.target.files?.[0]
+  if (file) parseFile(file)
+}
+
+const handleFileDrop = (event) => {
+  const file = event.dataTransfer?.files?.[0]
+  if (file) parseFile(file)
+}
+
+// Parses an Excel file into a list of topics (merged by topic name) plus the
+// row numbers that were skipped because they are missing a topic name or question.
+const parseFile = async (file) => {
+  try {
+    const buffer = await file.arrayBuffer()
+    const workbook = XLSX.read(buffer, { type: 'array' })
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+    if (!rows.length) {
+      importDialog.previewTopics = []
+      importDialog.errorRows = []
+      importDialog.fileName = file.name
+      return
+    }
+
+    const headerMap = new Map()
+    rows[0].forEach((cell, index) => {
+      const key = normalizeHeader(cell)
+      if (key && !headerMap.has(key)) headerMap.set(key, index)
+    })
+    const nameIdx = headerMap.get('name')
+    const aliasesIdx = headerMap.get('aliases')
+    const hintIdx = headerMap.get('hint_message')
+    const questionIdx = headerMap.get('question')
+    const answerIdx = headerMap.get('answer')
+    if (nameIdx === undefined || questionIdx === undefined) {
+      importDialog.previewTopics = []
+      importDialog.errorRows = []
+      importDialog.fileName = file.name
+      return
+    }
+
+    const topicMap = new Map()
+    const order = []
+    const errorRows = []
+    for (let i = 1; i < rows.length; i++) {
+      const rowNum = i + 1
+      const row = rows[i]
+      const name = nameIdx >= 0 ? String(row[nameIdx] ?? '').trim() : ''
+      const question = questionIdx >= 0 ? String(row[questionIdx] ?? '').trim() : ''
+      if (!name && !question) continue // skip fully empty rows
+      if (!name) {
+        errorRows.push(rowNum)
+        continue
+      }
+      // A row with a topic name but an empty question is a valid topic without
+      // questions (mirrors the export format).
+      const rawAliases = aliasesIdx >= 0 ? String(row[aliasesIdx] ?? '') : ''
+      const aliases = rawAliases.split(/[;；,，]/).map((a) => a.trim()).filter(Boolean)
+      const hint = hintIdx >= 0 ? String(row[hintIdx] ?? '').trim() : ''
+      const answer = answerIdx >= 0 ? String(row[answerIdx] ?? '') : ''
+
+      let topic = topicMap.get(name)
+      if (!topic) {
+        topic = { name, aliases: new Set(), hint_message: hint, questions: [] }
+        topicMap.set(name, topic)
+        order.push(topic)
+      }
+      aliases.forEach((a) => topic.aliases.add(a))
+      if (!topic.hint_message && hint) topic.hint_message = hint
+      if (question) topic.questions.push({ question, answer })
+    }
+
+    importDialog.previewTopics = order.map((topic) => ({
+      name: topic.name,
+      aliases: [...topic.aliases],
+      hint_message: topic.hint_message,
+      questions: topic.questions
+    }))
+    importDialog.errorRows = errorRows
+    importDialog.fileName = file.name
+  } catch (error) {
+    importDialog.previewTopics = []
+    importDialog.errorRows = []
+    importDialog.fileName = ''
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      variant: 'destructive',
+      description: handleHTTPError(error).message || t('admin.quickReply.importError')
+    })
+  }
+}
+
+const confirmImport = async () => {
+  if (importing.value || importDialog.previewTopics.length === 0) return
+  importing.value = true
+  try {
+    const payload = {
+      topics: importDialog.previewTopics.map((topic) => ({
+        name: topic.name,
+        names: topic.aliases || [],
+        hint_message: topic.hint_message,
+        questions: topic.questions.map((q) => ({ question: q.question, answer: q.answer }))
+      }))
+    }
+    const resp = await api.importQuickReplyTopics(props.inboxId, payload)
+    const stats = resp.data.data
+    closeImportDialog()
+    await loadTopics()
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      description: t('admin.quickReply.importStats', {
+        createdTopics: stats.created_topics,
+        updatedTopics: stats.updated_topics,
+        createdQuestions: stats.created_questions,
+        updatedQuestions: stats.updated_questions
+      })
+    })
+  } catch (error) {
+    showError(error)
+  } finally {
+    importing.value = false
   }
 }
 

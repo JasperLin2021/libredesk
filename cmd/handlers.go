@@ -185,6 +185,7 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.PUT("/api/v1/inboxes/{id}/quick-reply-config", perm(handleUpdateQuickReplyConfig, "inboxes:manage"))
 	g.GET("/api/v1/inboxes/{id}/quick-reply-topics", perm(handleGetQuickReplyTopics, "inboxes:manage"))
 	g.POST("/api/v1/inboxes/{id}/quick-reply-topics", perm(handleCreateQuickReplyTopic, "inboxes:manage"))
+	g.POST("/api/v1/inboxes/{id}/quick-reply-topics/import", perm(handleImportQuickReplyTopics, "inboxes:manage"))
 	g.PUT("/api/v1/quick-reply-topics/{id}", perm(handleUpdateQuickReplyTopic, "inboxes:manage"))
 	g.DELETE("/api/v1/quick-reply-topics/{id}", perm(handleDeleteQuickReplyTopic, "inboxes:manage"))
 	g.POST("/api/v1/quick-reply-topics/{id}/questions", perm(handleCreateQuickReplyQuestion, "inboxes:manage"))

@@ -424,6 +424,12 @@ const createQuickReplyTopic = (id, data) =>
       'Content-Type': 'application/json'
     }
   })
+const importQuickReplyTopics = (id, data) =>
+  http.post(`/api/v1/inboxes/${id}/quick-reply-topics/import`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
 const updateQuickReplyTopic = (id, data) =>
   http.put(`/api/v1/quick-reply-topics/${id}`, data, {
     headers: {
@@ -698,6 +704,7 @@ export default {
   updateQuickReplyConfig,
   getQuickReplyTopics,
   createQuickReplyTopic,
+  importQuickReplyTopics,
   updateQuickReplyTopic,
   deleteQuickReplyTopic,
   createQuickReplyQuestion,
