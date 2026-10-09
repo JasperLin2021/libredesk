@@ -90,6 +90,12 @@ export const adminNavItems = [
         href: '/admin/quick-reply',
         permission: 'inboxes:manage',
         icon: 'MessageSquareText'
+      },
+      {
+        titleKey: 'admin.cannedResponses.title',
+        href: '/admin/canned-responses',
+        permission: 'canned_responses:manage',
+        icon: 'BookOpen'
       }
     ]
   },

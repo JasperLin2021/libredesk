@@ -26,6 +26,7 @@ export const permissions = {
   TEAMS_MANAGE: 'teams:manage',
   AUTOMATIONS_MANAGE: 'automations:manage',
   INBOXES_MANAGE: 'inboxes:manage',
+  CANNED_RESPONSES_MANAGE: 'canned_responses:manage',
   ROLES_MANAGE: 'roles:manage',
   TEMPLATES_MANAGE: 'templates:manage',
   REPORTS_MANAGE: 'reports:manage',

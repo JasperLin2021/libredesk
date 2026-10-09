@@ -192,6 +192,17 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.PUT("/api/v1/quick-reply-questions/{id}", perm(handleUpdateQuickReplyQuestion, "inboxes:manage"))
 	g.DELETE("/api/v1/quick-reply-questions/{id}", perm(handleDeleteQuickReplyQuestion, "inboxes:manage"))
 
+	// Canned responses (globally shared canned replies / 公共常用语).
+	g.GET("/api/v1/canned-responses", perm(handleGetCannedResponses, "canned_responses:manage"))
+	g.POST("/api/v1/canned-responses", perm(handleCreateCannedResponse, "canned_responses:manage"))
+	g.POST("/api/v1/canned-responses/import", perm(handleImportCannedResponses, "canned_responses:manage"))
+	g.DELETE("/api/v1/canned-responses", perm(handleDeleteAllCannedResponses, "canned_responses:manage"))
+	g.PUT("/api/v1/canned-responses/{id}", perm(handleUpdateCannedResponse, "canned_responses:manage"))
+	g.DELETE("/api/v1/canned-responses/{id}", perm(handleDeleteCannedResponse, "canned_responses:manage"))
+	g.POST("/api/v1/canned-categories", perm(handleCreateCannedCategory, "canned_responses:manage"))
+	g.PUT("/api/v1/canned-categories/{id}", perm(handleUpdateCannedCategory, "canned_responses:manage"))
+	g.DELETE("/api/v1/canned-categories/{id}", perm(handleDeleteCannedCategory, "canned_responses:manage"))
+
 	// OAuth endpoints for email inboxes.
 	g.POST("/api/v1/inboxes/oauth/{provider}/authorize", perm(handleOAuthAuthorize, "inboxes:manage"))
 	g.GET("/api/v1/inboxes/oauth/{provider}/callback", perm(handleOAuthCallback, "inboxes:manage"))

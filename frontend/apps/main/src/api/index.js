@@ -450,6 +450,40 @@ const updateQuickReplyQuestion = (id, data) =>
     }
   })
 const deleteQuickReplyQuestion = (id) => http.delete(`/api/v1/quick-reply-questions/${id}`)
+const getCannedResponses = () => http.get('/api/v1/canned-responses')
+const createCannedCategory = (data) =>
+  http.post('/api/v1/canned-categories', data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const updateCannedCategory = (id, data) =>
+  http.put(`/api/v1/canned-categories/${id}`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const deleteCannedCategory = (id) => http.delete(`/api/v1/canned-categories/${id}`)
+const createCannedResponse = (data) =>
+  http.post('/api/v1/canned-responses', data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const updateCannedResponse = (id, data) =>
+  http.put(`/api/v1/canned-responses/${id}`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const deleteCannedResponse = (id) => http.delete(`/api/v1/canned-responses/${id}`)
+const deleteAllCannedResponses = () => http.delete('/api/v1/canned-responses')
+const importCannedResponses = (data) =>
+  http.post('/api/v1/canned-responses/import', data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
 const saveDraft = (uuid, type, data) =>
   http.post(`/api/v1/conversations/${uuid}/draft`, { ...data, type }, {
     headers: {
@@ -710,6 +744,15 @@ export default {
   createQuickReplyQuestion,
   updateQuickReplyQuestion,
   deleteQuickReplyQuestion,
+  getCannedResponses,
+  createCannedCategory,
+  updateCannedCategory,
+  deleteCannedCategory,
+  createCannedResponse,
+  updateCannedResponse,
+  deleteCannedResponse,
+  deleteAllCannedResponses,
+  importCannedResponses,
   createTeam,
   updateTeam,
   getSettings,

@@ -456,6 +456,12 @@ const routes = [
             meta: { titleKey: 'admin.quickReply.title' }
           },
           {
+            path: 'canned-responses',
+            name: 'canned-responses',
+            component: () => import('@main/views/admin/canned/CannedResponses.vue'),
+            meta: { titleKey: 'admin.cannedResponses.title' }
+          },
+          {
             path: 'templates',
             component: () => import('@main/views/admin/templates/Templates.vue'),
             meta: { titleKey: 'globals.terms.template', titleCount: 2 },

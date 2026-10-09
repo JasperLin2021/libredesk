@@ -354,6 +354,31 @@ CREATE TABLE quick_reply_questions (
 );
 CREATE INDEX index_quick_reply_questions_on_topic_id ON quick_reply_questions (topic_id);
 
+DROP TABLE IF EXISTS canned_categories CASCADE;
+CREATE TABLE canned_categories (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    parent_id BIGINT REFERENCES canned_categories(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    name TEXT NOT NULL,
+    sort_order INT DEFAULT 0 NOT NULL,
+    CONSTRAINT constraint_canned_categories_on_name CHECK (length(name) <= 20)
+);
+CREATE INDEX index_canned_categories_on_parent_id ON canned_categories (parent_id);
+CREATE UNIQUE INDEX index_uniq_canned_categories_on_parent_and_name ON canned_categories (COALESCE(parent_id, 0), name);
+
+DROP TABLE IF EXISTS canned_responses CASCADE;
+CREATE TABLE canned_responses (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    category_id BIGINT REFERENCES canned_categories(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
+    content TEXT NOT NULL,
+    sort_order INT DEFAULT 0 NOT NULL,
+    CONSTRAINT constraint_canned_responses_on_content CHECK (length(content) <= 1000)
+);
+CREATE INDEX index_canned_responses_on_category_id ON canned_responses (category_id);
+
 DROP TABLE IF EXISTS conversation_drafts CASCADE;
 CREATE TABLE conversation_drafts (
     id BIGSERIAL PRIMARY KEY,
@@ -941,7 +966,7 @@ VALUES
 	(
 		'Admin',
 		'Role for users who have complete access to everything.',
-		'{webhooks:manage,context_links:manage,activity_logs:manage,custom_attributes:manage,contacts:read_all,contacts:read,contacts:write,contacts:block,contact_notes:read,contact_notes:write,contact_notes:delete,conversations:write,ai:manage,general_settings:manage,notification_settings:manage,oidc:manage,conversations:read_all,conversations:read_unassigned,conversations:read_assigned,conversations:read_team_inbox,conversations:read_team_all,conversations:read,conversations:update_user_assignee,conversations:update_team_assignee,conversations:update_priority,conversations:update_status,conversations:update_tags,messages:read,messages:write,view:manage,shared_views:manage,status:manage,tags:manage,macros:manage,users:manage,teams:manage,automations:manage,inboxes:manage,roles:manage,reports:manage,templates:manage,business_hours:manage,sla:manage}'
+		'{webhooks:manage,context_links:manage,activity_logs:manage,custom_attributes:manage,contacts:read_all,contacts:read,contacts:write,contacts:block,contact_notes:read,contact_notes:write,contact_notes:delete,conversations:write,ai:manage,general_settings:manage,notification_settings:manage,oidc:manage,conversations:read_all,conversations:read_unassigned,conversations:read_assigned,conversations:read_team_inbox,conversations:read_team_all,conversations:read,conversations:update_user_assignee,conversations:update_team_assignee,conversations:update_priority,conversations:update_status,conversations:update_tags,messages:read,messages:write,view:manage,shared_views:manage,status:manage,tags:manage,macros:manage,users:manage,teams:manage,automations:manage,inboxes:manage,roles:manage,reports:manage,templates:manage,business_hours:manage,sla:manage,canned_responses:manage}'
 	);
 
 

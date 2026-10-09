@@ -169,6 +169,10 @@ const permissions = ref([
       { name: perms.TEAMS_MANAGE, label: t('admin.role.teams.manage') },
       { name: perms.AUTOMATIONS_MANAGE, label: t('admin.role.automations.manage') },
       { name: perms.INBOXES_MANAGE, label: t('admin.role.inboxes.manage') },
+      {
+        name: perms.CANNED_RESPONSES_MANAGE,
+        label: t('admin.role.cannedResponses.manage')
+      },
       { name: perms.ROLES_MANAGE, label: t('admin.role.roles.manage') },
       { name: perms.TEMPLATES_MANAGE, label: t('admin.role.templates.manage') },
       { name: perms.REPORTS_MANAGE, label: t('admin.role.reports.manage') },

@@ -92,6 +92,9 @@ const (
 
 	// Activity log
 	PermActivityLogsManage = "activity_logs:manage"
+
+	// Canned responses (globally shared canned replies / 公共常用语)
+	PermCannedResponsesManage = "canned_responses:manage"
 )
 
 var validPermissions = map[string]struct{}{
@@ -139,6 +142,7 @@ var validPermissions = map[string]struct{}{
 	PermActivityLogsManage:              {},
 	PermWebhooksManage:                  {},
 	PermContextLinksManage:              {},
+	PermCannedResponsesManage:           {},
 }
 
 // PermissionExists returns true if the permission exists else false
