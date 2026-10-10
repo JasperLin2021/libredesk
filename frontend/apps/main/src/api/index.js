@@ -1,7 +1,7 @@
 import axios from 'axios'
 import qs from 'qs'
 
-const http = axios.create({
+export const http = axios.create({
   timeout: 10000,
   responseType: 'json'
 })
@@ -502,6 +502,35 @@ const pinAgentCannedResponse = (source, id) =>
   http.post(`/api/v1/agent/canned-pins/${source}/${id}`)
 const unpinAgentCannedResponse = (source, id) =>
   http.delete(`/api/v1/agent/canned-pins/${source}/${id}`)
+
+// Knowledge base
+const getKnowledgeCategories = () => http.get('/api/v1/kb/categories')
+const createKnowledgeCategory = (data) =>
+  http.post('/api/v1/kb/categories', data, {
+    headers: { 'Content-Type': 'application/json' }
+  })
+const updateKnowledgeCategory = (id, data) =>
+  http.put(`/api/v1/kb/categories/${id}`, data, {
+    headers: { 'Content-Type': 'application/json' }
+  })
+const deleteKnowledgeCategory = (id) => http.delete(`/api/v1/kb/categories/${id}`)
+const listKnowledgeArticles = (params) =>
+  http.get('/api/v1/kb/articles', { params })
+const getKnowledgeArticle = (id) => http.get(`/api/v1/kb/articles/${id}`)
+const createKnowledgeArticle = (data) =>
+  http.post('/api/v1/kb/articles', data, {
+    headers: { 'Content-Type': 'application/json' }
+  })
+const updateKnowledgeArticle = (id, data) =>
+  http.put(`/api/v1/kb/articles/${id}`, data, {
+    headers: { 'Content-Type': 'application/json' }
+  })
+const deleteKnowledgeArticle = (id) => http.delete(`/api/v1/kb/articles/${id}`)
+const importKnowledgeArticles = (data) =>
+  http.post('/api/v1/kb/articles/import', data, {
+    headers: { 'Content-Type': 'application/json' }
+  })
+const exportKnowledgeArticles = () => http.get('/api/v1/kb/articles/export')
 const saveDraft = (uuid, type, data) =>
   http.post(`/api/v1/conversations/${uuid}/draft`, { ...data, type }, {
     headers: {
@@ -777,6 +806,17 @@ export default {
   deleteAgentCannedResponse,
   pinAgentCannedResponse,
   unpinAgentCannedResponse,
+  getKnowledgeCategories,
+  createKnowledgeCategory,
+  updateKnowledgeCategory,
+  deleteKnowledgeCategory,
+  listKnowledgeArticles,
+  getKnowledgeArticle,
+  createKnowledgeArticle,
+  updateKnowledgeArticle,
+  deleteKnowledgeArticle,
+  importKnowledgeArticles,
+  exportKnowledgeArticles,
   createTeam,
   updateTeam,
   getSettings,

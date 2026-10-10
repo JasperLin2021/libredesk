@@ -60,7 +60,8 @@ import {
   Bot,
   Lightbulb,
   MessageSquareText,
-  BookOpen
+  BookOpen,
+  LibraryBig
 } from 'lucide-vue-next'
 
 const navIconMap = {
@@ -92,7 +93,8 @@ const navIconMap = {
   Bot,
   Lightbulb,
   MessageSquareText,
-  BookOpen
+  BookOpen,
+  LibraryBig
 }
 import {
   DropdownMenu,

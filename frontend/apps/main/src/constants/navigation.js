@@ -96,6 +96,12 @@ export const adminNavItems = [
         href: '/admin/canned-responses',
         permission: 'canned_responses:manage',
         icon: 'BookOpen'
+      },
+      {
+        titleKey: 'admin.knowledgeBase.title',
+        href: '/admin/knowledge-base',
+        permission: 'knowledge_base:manage',
+        icon: 'LibraryBig'
       }
     ]
   },

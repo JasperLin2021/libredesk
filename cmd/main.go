@@ -21,6 +21,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/authz"
 	businesshours "github.com/abhinavxd/libredesk/internal/business_hours"
 	"github.com/abhinavxd/libredesk/internal/cannedresponse"
+	"github.com/abhinavxd/libredesk/internal/knowledgebase"
 	"github.com/abhinavxd/libredesk/internal/colorlog"
 	"github.com/abhinavxd/libredesk/internal/csat"
 	customAttribute "github.com/abhinavxd/libredesk/internal/custom_attribute"
@@ -104,6 +105,7 @@ type App struct {
 	csat             *csat.Manager
 	quickReply       *quickreply.Manager
 	cannedResponse   *cannedresponse.Manager
+	knowledgeBase    *knowledgebase.Manager
 	view             *view.Manager
 	ai               *ai.Manager
 	aiAgent          *aiagent.Manager
@@ -221,6 +223,7 @@ func main() {
 		csat                        = initCSAT(db, i18n)
 		quickReply                  = initQuickReply(db, i18n)
 		cannedResponse              = initCannedResponse(db, i18n)
+		knowledgeBase               = initKnowledgeBase(db, i18n)
 		oidc                        = initOIDC(db, settings, i18n)
 		status                      = initStatus(db, i18n)
 		priority                    = initPriority(db, i18n)
@@ -291,6 +294,7 @@ func main() {
 		csat:             csat,
 		quickReply:       quickReply,
 		cannedResponse:   cannedResponse,
+		knowledgeBase:    knowledgeBase,
 		status:           status,
 		priority:         priority,
 		tmpl:             template,

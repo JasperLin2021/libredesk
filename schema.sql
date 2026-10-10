@@ -403,6 +403,55 @@ CREATE TABLE user_canned_pins (
 );
 CREATE INDEX index_user_canned_pins_on_user_id ON user_canned_pins (user_id);
 
+DROP TABLE IF EXISTS kb_article_attachments CASCADE;
+CREATE TABLE kb_article_attachments (
+    id BIGSERIAL PRIMARY KEY,
+    article_id BIGINT REFERENCES kb_articles(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
+    media_uuid TEXT NOT NULL,
+    file_name TEXT,
+    content_type TEXT,
+    size BIGINT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX index_kb_article_attachments_on_article_id ON kb_article_attachments (article_id);
+
+DROP TABLE IF EXISTS kb_articles CASCADE;
+CREATE TABLE kb_articles (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    category_id BIGINT REFERENCES kb_categories(id) ON DELETE SET NULL ON UPDATE CASCADE,
+    external_id TEXT,
+    code TEXT,
+    title TEXT NOT NULL,
+    author TEXT,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'published',
+    sort_order INT DEFAULT 0 NOT NULL,
+    CONSTRAINT constraint_kb_articles_on_title CHECK (length(title) <= 200),
+    CONSTRAINT constraint_kb_articles_on_status CHECK (status IN ('published', 'draft'))
+);
+CREATE INDEX index_kb_articles_on_category_id ON kb_articles (category_id);
+CREATE INDEX index_kb_articles_on_status ON kb_articles (status);
+CREATE INDEX index_kb_articles_on_created_at ON kb_articles (created_at DESC);
+CREATE UNIQUE INDEX index_uniq_kb_articles_on_external_id ON kb_articles (external_id) WHERE external_id IS NOT NULL;
+CREATE UNIQUE INDEX index_uniq_kb_articles_on_code ON kb_articles (code) WHERE code IS NOT NULL;
+
+DROP TABLE IF EXISTS kb_categories CASCADE;
+CREATE TABLE kb_categories (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    parent_id BIGINT REFERENCES kb_categories(id) ON DELETE CASCADE ON UPDATE CASCADE,
+    code TEXT,
+    name TEXT NOT NULL,
+    sort_order INT DEFAULT 0 NOT NULL,
+    CONSTRAINT constraint_kb_categories_on_name CHECK (length(name) <= 50)
+);
+CREATE INDEX index_kb_categories_on_parent_id ON kb_categories (parent_id);
+CREATE UNIQUE INDEX index_uniq_kb_categories_on_parent_and_name ON kb_categories (COALESCE(parent_id, 0), name);
+CREATE UNIQUE INDEX index_uniq_kb_categories_on_parent_and_code ON kb_categories (COALESCE(parent_id, 0), code) WHERE code IS NOT NULL;
+
 DROP TABLE IF EXISTS conversation_drafts CASCADE;
 CREATE TABLE conversation_drafts (
     id BIGSERIAL PRIMARY KEY,
@@ -990,7 +1039,7 @@ VALUES
 	(
 		'Admin',
 		'Role for users who have complete access to everything.',
-		'{webhooks:manage,context_links:manage,activity_logs:manage,custom_attributes:manage,contacts:read_all,contacts:read,contacts:write,contacts:block,contact_notes:read,contact_notes:write,contact_notes:delete,conversations:write,ai:manage,general_settings:manage,notification_settings:manage,oidc:manage,conversations:read_all,conversations:read_unassigned,conversations:read_assigned,conversations:read_team_inbox,conversations:read_team_all,conversations:read,conversations:update_user_assignee,conversations:update_team_assignee,conversations:update_priority,conversations:update_status,conversations:update_tags,messages:read,messages:write,view:manage,shared_views:manage,status:manage,tags:manage,macros:manage,users:manage,teams:manage,automations:manage,inboxes:manage,roles:manage,reports:manage,templates:manage,business_hours:manage,sla:manage,canned_responses:manage}'
+		'{webhooks:manage,context_links:manage,activity_logs:manage,custom_attributes:manage,contacts:read_all,contacts:read,contacts:write,contacts:block,contact_notes:read,contact_notes:write,contact_notes:delete,conversations:write,ai:manage,general_settings:manage,notification_settings:manage,oidc:manage,conversations:read_all,conversations:read_unassigned,conversations:read_assigned,conversations:read_team_inbox,conversations:read_team_all,conversations:read,conversations:update_user_assignee,conversations:update_team_assignee,conversations:update_priority,conversations:update_status,conversations:update_tags,messages:read,messages:write,view:manage,shared_views:manage,status:manage,tags:manage,macros:manage,users:manage,teams:manage,automations:manage,inboxes:manage,roles:manage,reports:manage,templates:manage,business_hours:manage,sla:manage,canned_responses:manage,knowledge_base:manage}'
 	);
 
 

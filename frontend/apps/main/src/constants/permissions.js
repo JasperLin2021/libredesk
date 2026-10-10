@@ -27,6 +27,7 @@ export const permissions = {
   AUTOMATIONS_MANAGE: 'automations:manage',
   INBOXES_MANAGE: 'inboxes:manage',
   CANNED_RESPONSES_MANAGE: 'canned_responses:manage',
+  KNOWLEDGE_BASE_MANAGE: 'knowledge_base:manage',
   ROLES_MANAGE: 'roles:manage',
   TEMPLATES_MANAGE: 'templates:manage',
   REPORTS_MANAGE: 'reports:manage',

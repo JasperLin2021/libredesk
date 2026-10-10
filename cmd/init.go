@@ -22,6 +22,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/automation"
 	businesshours "github.com/abhinavxd/libredesk/internal/business_hours"
 	"github.com/abhinavxd/libredesk/internal/cannedresponse"
+	"github.com/abhinavxd/libredesk/internal/knowledgebase"
 	"github.com/abhinavxd/libredesk/internal/colorlog"
 	contextlink "github.com/abhinavxd/libredesk/internal/context_link"
 	"github.com/abhinavxd/libredesk/internal/conversation"
@@ -347,6 +348,19 @@ func initCannedResponse(db *sqlx.DB, i18n *i18n.I18n) *cannedresponse.Manager {
 	})
 	if err != nil {
 		log.Fatalf("error initializing canned response manager: %v", err)
+	}
+	return mgr
+}
+
+// initKnowledgeBase inits the knowledge base manager.
+func initKnowledgeBase(db *sqlx.DB, i18n *i18n.I18n) *knowledgebase.Manager {
+	mgr, err := knowledgebase.New(knowledgebase.Opts{
+		DB:   db,
+		Lo:   initLogger("knowledgebase"),
+		I18n: i18n,
+	})
+	if err != nil {
+		log.Fatalf("error initializing knowledge base manager: %v", err)
 	}
 	return mgr
 }

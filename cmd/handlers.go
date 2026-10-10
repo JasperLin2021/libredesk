@@ -214,6 +214,20 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.POST("/api/v1/agent/canned-pins/{source}/{id}", perm(handlePinCannedResponse, "messages:write"))
 	g.DELETE("/api/v1/agent/canned-pins/{source}/{id}", perm(handleUnpinCannedResponse, "messages:write"))
 
+	// Knowledge base (客服知识库) — two-level category tree, paginated
+	// article listing, single-article CRUD and bulk import / export.
+	g.GET("/api/v1/kb/categories", perm(handleGetKnowledgeCategories, "knowledge_base:manage"))
+	g.POST("/api/v1/kb/categories", perm(handleCreateKnowledgeCategory, "knowledge_base:manage"))
+	g.PUT("/api/v1/kb/categories/{id}", perm(handleUpdateKnowledgeCategory, "knowledge_base:manage"))
+	g.DELETE("/api/v1/kb/categories/{id}", perm(handleDeleteKnowledgeCategory, "knowledge_base:manage"))
+	g.GET("/api/v1/kb/articles", perm(handleListKnowledgeArticles, "knowledge_base:manage"))
+	g.GET("/api/v1/kb/articles/{id}", perm(handleGetKnowledgeArticle, "knowledge_base:manage"))
+	g.POST("/api/v1/kb/articles", perm(handleCreateKnowledgeArticle, "knowledge_base:manage"))
+	g.PUT("/api/v1/kb/articles/{id}", perm(handleUpdateKnowledgeArticle, "knowledge_base:manage"))
+	g.DELETE("/api/v1/kb/articles/{id}", perm(handleDeleteKnowledgeArticle, "knowledge_base:manage"))
+	g.POST("/api/v1/kb/articles/import", perm(handleImportKnowledgeArticles, "knowledge_base:manage"))
+	g.GET("/api/v1/kb/articles/export", perm(handleExportKnowledgeArticles, "knowledge_base:manage"))
+
 	// OAuth endpoints for email inboxes.
 	g.POST("/api/v1/inboxes/oauth/{provider}/authorize", perm(handleOAuthAuthorize, "inboxes:manage"))
 	g.GET("/api/v1/inboxes/oauth/{provider}/callback", perm(handleOAuthCallback, "inboxes:manage"))

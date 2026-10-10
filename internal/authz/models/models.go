@@ -95,6 +95,9 @@ const (
 
 	// Canned responses (globally shared canned replies / 公共常用语)
 	PermCannedResponsesManage = "canned_responses:manage"
+
+	// Knowledge base (客服知识库)
+	PermKnowledgeBaseManage = "knowledge_base:manage"
 )
 
 var validPermissions = map[string]struct{}{
@@ -143,6 +146,7 @@ var validPermissions = map[string]struct{}{
 	PermWebhooksManage:                  {},
 	PermContextLinksManage:              {},
 	PermCannedResponsesManage:           {},
+	PermKnowledgeBaseManage:             {},
 }
 
 // PermissionExists returns true if the permission exists else false

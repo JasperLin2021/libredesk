@@ -462,6 +462,12 @@ const routes = [
             meta: { titleKey: 'admin.cannedResponses.title' }
           },
           {
+            path: 'knowledge-base',
+            name: 'knowledge-base',
+            component: () => import('@main/views/admin/knowledge/KnowledgeBase.vue'),
+            meta: { titleKey: 'admin.knowledgeBase.title' }
+          },
+          {
             path: 'templates',
             component: () => import('@main/views/admin/templates/Templates.vue'),
             meta: { titleKey: 'globals.terms.template', titleCount: 2 },

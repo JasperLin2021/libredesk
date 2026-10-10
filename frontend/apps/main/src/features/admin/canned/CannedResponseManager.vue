@@ -710,13 +710,12 @@ const loadTree = async () => {
   const resp = await api.getCannedResponses()
   tree.value = resp.data.data || []
 
-  // Expand everything on the first load.
+  // Categories stay collapsed on the first load so the left tree opens
+  // compact; the user can expand on demand. (Previously every parent
+  // category was force-expanded here, which made the panel scroll a lot
+  // for tenants with a deep tree.)
   if (!expandedInitialized.value) {
-    const ids = new Set()
-    for (const { node } of allCategories.value) {
-      if (node.children?.length) ids.add(node.id)
-    }
-    expanded.value = ids
+    expanded.value = new Set()
     expandedInitialized.value = true
   }
 
