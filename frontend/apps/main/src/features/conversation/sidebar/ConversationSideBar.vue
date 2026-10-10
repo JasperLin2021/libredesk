@@ -1,8 +1,9 @@
 <template>
   <Tabs v-model="activeTab" class="flex flex-col h-full">
-    <TabsList class="grid grid-cols-2 mx-4 mt-3">
+    <TabsList class="grid grid-cols-3 mx-4 mt-3">
       <TabsTrigger value="details" class="text-xs">{{ $t('copilot.details') }}</TabsTrigger>
       <TabsTrigger value="copilot" class="text-xs">{{ COPILOT_NAME }}</TabsTrigger>
+      <TabsTrigger value="canned" class="text-xs">{{ $t('conversation.sidebar.cannedResponses') }}</TabsTrigger>
     </TabsList>
 
     <TabsContent value="details" class="mt-0">
@@ -152,6 +153,10 @@
     <TabsContent value="copilot" class="flex-1 min-h-0 mt-0">
       <CopilotPanel />
     </TabsContent>
+
+    <TabsContent value="canned" class="flex-1 min-h-0 mt-0">
+      <CannedResponsesPanel />
+    </TabsContent>
   </Tabs>
 </template>
 
@@ -175,6 +180,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@shared-ui/components/
 import ConversationInfo from './ConversationInfo.vue'
 import ConversationSideBarContact from '@/features/conversation/sidebar/ConversationSideBarContact.vue'
 import CopilotPanel from '@/features/conversation/sidebar/CopilotPanel.vue'
+import CannedResponsesPanel from '@/features/conversation/sidebar/CannedResponsesPanel.vue'
 import { SelectTag } from '@shared-ui/components/ui/select'
 import { handleHTTPError } from '@shared-ui/utils/http.js'
 import { EMITTER_EVENTS } from '../../../constants/emitterEvents.js'

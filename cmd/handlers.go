@@ -203,6 +203,17 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.PUT("/api/v1/canned-categories/{id}", perm(handleUpdateCannedCategory, "canned_responses:manage"))
 	g.DELETE("/api/v1/canned-categories/{id}", perm(handleDeleteCannedCategory, "canned_responses:manage"))
 
+	// Agent-facing "常用语" sidebar: reads the global tree, manages the
+	// agent's own personal canned responses and pin list. `messages:write`
+	// is held by every regular agent, while admin-only operations on the
+	// global tree remain gated by `canned_responses:manage` above.
+	g.GET("/api/v1/agent/canned-responses", perm(handleGetAgentCannedResponses, "messages:read"))
+	g.POST("/api/v1/agent/canned-responses", perm(handleCreatePersonalCannedResponse, "messages:write"))
+	g.PUT("/api/v1/agent/canned-responses/{id}", perm(handleUpdatePersonalCannedResponse, "messages:write"))
+	g.DELETE("/api/v1/agent/canned-responses/{id}", perm(handleDeletePersonalCannedResponse, "messages:write"))
+	g.POST("/api/v1/agent/canned-pins/{source}/{id}", perm(handlePinCannedResponse, "messages:write"))
+	g.DELETE("/api/v1/agent/canned-pins/{source}/{id}", perm(handleUnpinCannedResponse, "messages:write"))
+
 	// OAuth endpoints for email inboxes.
 	g.POST("/api/v1/inboxes/oauth/{provider}/authorize", perm(handleOAuthAuthorize, "inboxes:manage"))
 	g.GET("/api/v1/inboxes/oauth/{provider}/callback", perm(handleOAuthCallback, "inboxes:manage"))

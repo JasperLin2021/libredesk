@@ -484,6 +484,24 @@ const importCannedResponses = (data) =>
       'Content-Type': 'application/json'
     }
   })
+const getAgentCannedResponses = () => http.get('/api/v1/agent/canned-responses')
+const createAgentCannedResponse = (data) =>
+  http.post('/api/v1/agent/canned-responses', data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const updateAgentCannedResponse = (id, data) =>
+  http.put(`/api/v1/agent/canned-responses/${id}`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const deleteAgentCannedResponse = (id) => http.delete(`/api/v1/agent/canned-responses/${id}`)
+const pinAgentCannedResponse = (source, id) =>
+  http.post(`/api/v1/agent/canned-pins/${source}/${id}`)
+const unpinAgentCannedResponse = (source, id) =>
+  http.delete(`/api/v1/agent/canned-pins/${source}/${id}`)
 const saveDraft = (uuid, type, data) =>
   http.post(`/api/v1/conversations/${uuid}/draft`, { ...data, type }, {
     headers: {
@@ -753,6 +771,12 @@ export default {
   deleteCannedResponse,
   deleteAllCannedResponses,
   importCannedResponses,
+  getAgentCannedResponses,
+  createAgentCannedResponse,
+  updateAgentCannedResponse,
+  deleteAgentCannedResponse,
+  pinAgentCannedResponse,
+  unpinAgentCannedResponse,
   createTeam,
   updateTeam,
   getSettings,

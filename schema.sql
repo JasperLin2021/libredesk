@@ -379,6 +379,30 @@ CREATE TABLE canned_responses (
 );
 CREATE INDEX index_canned_responses_on_category_id ON canned_responses (category_id);
 
+DROP TABLE IF EXISTS user_canned_responses CASCADE;
+CREATE TABLE user_canned_responses (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
+    content TEXT NOT NULL,
+    sort_order INT DEFAULT 0 NOT NULL,
+    CONSTRAINT constraint_user_canned_responses_on_content CHECK (length(content) <= 1000)
+);
+CREATE INDEX index_user_canned_responses_on_user_id ON user_canned_responses (user_id);
+
+DROP TABLE IF EXISTS user_canned_pins CASCADE;
+CREATE TABLE user_canned_pins (
+    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE NOT NULL,
+    source TEXT NOT NULL,
+    response_id BIGINT NOT NULL,
+    sort_order INT DEFAULT 0 NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, source, response_id),
+    CONSTRAINT constraint_user_canned_pins_on_source CHECK (source IN ('global', 'personal'))
+);
+CREATE INDEX index_user_canned_pins_on_user_id ON user_canned_pins (user_id);
+
 DROP TABLE IF EXISTS conversation_drafts CASCADE;
 CREATE TABLE conversation_drafts (
     id BIGSERIAL PRIMARY KEY,

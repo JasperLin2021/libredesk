@@ -60,6 +60,19 @@ type queries struct {
 	NextResponseSortOrder *sqlx.Stmt `query:"next-response-sort-order"`
 	DeleteAllResponses    *sqlx.Stmt `query:"delete-all-responses"`
 	DeleteAllCategories   *sqlx.Stmt `query:"delete-all-categories"`
+
+	// Per-agent canned responses ("个人常用语") and pins ("置顶常用语").
+	GetUserPersonalResponses  *sqlx.Stmt `query:"get-user-personal-responses"`
+	GetUserPersonalResponse   *sqlx.Stmt `query:"get-user-personal-response"`
+	NextUserPersonalSortOrder *sqlx.Stmt `query:"next-user-personal-sort-order"`
+	InsertUserPersonalResponse *sqlx.Stmt `query:"insert-user-personal-response"`
+	UpdateUserPersonalResponse *sqlx.Stmt `query:"update-user-personal-response"`
+	DeleteUserPersonalResponse *sqlx.Stmt `query:"delete-user-personal-response"`
+	GetUserCannedPins         *sqlx.Stmt `query:"get-user-canned-pins"`
+	InsertUserCannedPin       *sqlx.Stmt `query:"insert-user-canned-pin"`
+	UpdateUserCannedPinSort   *sqlx.Stmt `query:"update-user-canned-pin-sort"`
+	DeleteUserCannedPin       *sqlx.Stmt `query:"delete-user-canned-pin"`
+	NextUserCannedPinSort     *sqlx.Stmt `query:"next-user-canned-pin-sort-order"`
 }
 
 // New creates and returns a new instance of the Manager.
@@ -235,6 +248,232 @@ func (m *Manager) DeleteResponse(id int) error {
 		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
 	}
 	return nil
+}
+
+// GetAgentView returns the aggregate view of canned responses shown in the
+// agent's "常用语" sidebar tab. It includes:
+//
+//   - `Global`: the full global category tree (the same data the admin
+//     "公共常用语" page edits). It is loaded in a single call to keep the
+//     payload small and to avoid N+1 queries.
+//   - `Personal`: the agent's own personal canned responses, scoped to
+//     `userID` so they never see another agent's entries.
+//   - `Pinned`: the agent's pin list, materialized with the resolved
+//     content of each pinned response. Pins whose underlying response has
+//     since been deleted (admin removed a global response, or the agent
+//     removed a personal one) are silently dropped — a stale pin must
+//     never leak into the UI.
+//
+// Two SQL round-trips load the global tree and the personal/pin data;
+// everything else is assembled in memory.
+func (m *Manager) GetAgentView(userID int) (models.AgentView, error) {
+	var view models.AgentView
+
+	// Reuse the existing admin tree builder. The whole tree is needed
+	// anyway because the sidebar nests the same global categories under
+	// the personal/pinned groups.
+	roots, err := m.GetTree()
+	if err != nil {
+		return view, err
+	}
+	view.Global = roots
+
+	personal, err := m.listPersonal(userID)
+	if err != nil {
+		return view, err
+	}
+	view.Personal = personal
+
+	pins, err := m.listPins(userID)
+	if err != nil {
+		return view, err
+	}
+	view.Pinned = pins
+	return view, nil
+}
+
+// CreatePersonal appends a new personal canned response owned by `userID`.
+// The caller is expected to have already validated/truncated `content`.
+func (m *Manager) CreatePersonal(userID int, content string) (models.PersonalResponse, error) {
+	var resp models.PersonalResponse
+	var nextSort int
+	if err := m.q.NextUserPersonalSortOrder.Get(&nextSort, userID); err != nil {
+		m.lo.Error("error computing next personal canned sort order", "error", err)
+		return resp, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	if err := m.q.InsertUserPersonalResponse.Get(&resp, userID, content, nextSort); err != nil {
+		m.lo.Error("error inserting personal canned response", "error", err)
+		return resp, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return resp, nil
+}
+
+// UpdatePersonal updates a personal canned response owned by `userID`. A
+// mismatched owner id returns InputError so the handler can surface a 404
+// instead of leaking the existence of someone else's entry.
+func (m *Manager) UpdatePersonal(userID, id int, content string, sortOrder int) (models.PersonalResponse, error) {
+	var resp models.PersonalResponse
+	if err := m.q.UpdateUserPersonalResponse.Get(&resp, id, content, sortOrder, userID); err != nil {
+		if err == sql.ErrNoRows {
+			return resp, envelope.NewError(envelope.InputError, m.i18n.T("validation.notFoundCannedResponse"), nil)
+		}
+		m.lo.Error("error updating personal canned response", "error", err)
+		return resp, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return resp, nil
+}
+
+// DeletePersonal removes a personal canned response owned by `userID`. The
+// matching pin rows for the same personal response are cleaned up by a
+// cascading FK on `user_canned_pins` (`user_id` is the FK), so no extra
+// work is needed here.
+func (m *Manager) DeletePersonal(userID, id int) error {
+	if _, err := m.q.DeleteUserPersonalResponse.Exec(id, userID); err != nil {
+		m.lo.Error("error deleting personal canned response", "error", err)
+		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return nil
+}
+
+// Pin pins a canned response to the top of `userID`'s sidebar. The pin is
+// idempotent: re-pinning the same response is a no-op rather than an error.
+func (m *Manager) Pin(userID int, source models.PinSource, responseID int) error {
+	if source != models.PinSourceGlobal && source != models.PinSourcePersonal {
+		return envelope.NewError(envelope.InputError, m.i18n.T("validation.invalidValue"), nil)
+	}
+	var nextSort int
+	if err := m.q.NextUserCannedPinSort.Get(&nextSort, userID); err != nil {
+		m.lo.Error("error computing next pin sort order", "error", err)
+		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	if _, err := m.q.InsertUserCannedPin.Exec(userID, string(source), responseID, nextSort); err != nil {
+		m.lo.Error("error inserting canned pin", "error", err)
+		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return nil
+}
+
+// Unpin removes a canned response from `userID`'s pin list. Missing pins
+// are silently ignored to keep the operation idempotent for the UI.
+func (m *Manager) Unpin(userID int, source models.PinSource, responseID int) error {
+	if source != models.PinSourceGlobal && source != models.PinSourcePersonal {
+		return envelope.NewError(envelope.InputError, m.i18n.T("validation.invalidValue"), nil)
+	}
+	if _, err := m.q.DeleteUserCannedPin.Exec(userID, string(source), responseID); err != nil {
+		m.lo.Error("error deleting canned pin", "error", err)
+		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return nil
+}
+
+// listPersonal returns the per-user personal canned responses. Centralized
+// here so it can be reused by the manager without leaking the prepared stmt
+// to callers.
+func (m *Manager) listPersonal(userID int) ([]models.PersonalResponse, error) {
+	var rows []models.PersonalResponse
+	if err := m.q.GetUserPersonalResponses.Select(&rows, userID); err != nil {
+		m.lo.Error("error fetching personal canned responses", "error", err)
+		return nil, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return rows, nil
+}
+
+// listPins returns the user's pin list, joined with the underlying canned
+// response content. The join drops any pin whose target has been deleted
+// (admin removed a global response, or the agent removed a personal one)
+// rather than surfacing an empty row to the UI.
+func (m *Manager) listPins(userID int) ([]models.PinnedResponse, error) {
+	type pinRow struct {
+		Source     string `db:"source"`
+		ResponseID int64  `db:"response_id"`
+		SortOrder  int    `db:"sort_order"`
+	}
+	var pins []pinRow
+	if err := m.q.GetUserCannedPins.Select(&pins, userID); err != nil {
+		m.lo.Error("error fetching canned pins", "error", err)
+		return nil, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	if len(pins) == 0 {
+		return []models.PinnedResponse{}, nil
+	}
+
+	// Bucket ids by source for a single SELECT per source.
+	var globalIDs, personalIDs []int64
+	for _, p := range pins {
+		switch models.PinSource(p.Source) {
+		case models.PinSourceGlobal:
+			globalIDs = append(globalIDs, p.ResponseID)
+		case models.PinSourcePersonal:
+			personalIDs = append(personalIDs, p.ResponseID)
+		}
+	}
+
+	globalContent := make(map[int64]string)
+	if len(globalIDs) > 0 {
+		q, args, err := sqlx.In(`select id, content from canned_responses where id in (?)`, globalIDs)
+		if err != nil {
+			m.lo.Error("error building canned pin join query", "error", err)
+			return nil, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+		}
+		q = m.db.Rebind(q)
+		type row struct {
+			ID      int64  `db:"id"`
+			Content string `db:"content"`
+		}
+		var rows []row
+		if err := m.db.Select(&rows, q, args...); err != nil {
+			m.lo.Error("error joining canned pins to global responses", "error", err)
+			return nil, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+		}
+		for _, r := range rows {
+			globalContent[r.ID] = r.Content
+		}
+	}
+
+	personalContent := make(map[int64]string)
+	if len(personalIDs) > 0 {
+		q, args, err := sqlx.In(`select id, content from user_canned_responses where user_id = ? and id in (?)`, userID, personalIDs)
+		if err != nil {
+			m.lo.Error("error building personal canned pin join query", "error", err)
+			return nil, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+		}
+		q = m.db.Rebind(q)
+		type row struct {
+			ID      int64  `db:"id"`
+			Content string `db:"content"`
+		}
+		var rows []row
+		if err := m.db.Select(&rows, q, args...); err != nil {
+			m.lo.Error("error joining canned pins to personal responses", "error", err)
+			return nil, envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
+		}
+		for _, r := range rows {
+			personalContent[r.ID] = r.Content
+		}
+	}
+
+	out := make([]models.PinnedResponse, 0, len(pins))
+	for _, p := range pins {
+		var content string
+		switch models.PinSource(p.Source) {
+		case models.PinSourceGlobal:
+			content = globalContent[p.ResponseID]
+		case models.PinSourcePersonal:
+			content = personalContent[p.ResponseID]
+		}
+		if content == "" {
+			// Stale pin: the underlying response was removed. Skip silently
+			// so the UI never renders a blank row.
+			continue
+		}
+		out = append(out, models.PinnedResponse{
+			Source:     models.PinSource(p.Source),
+			ResponseID: p.ResponseID,
+			Content:    content,
+			SortOrder:  p.SortOrder,
+		})
+	}
+	return out, nil
 }
 
 // DeleteAll removes every category and canned response.
