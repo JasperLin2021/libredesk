@@ -531,6 +531,14 @@ const importKnowledgeArticles = (data) =>
     headers: { 'Content-Type': 'application/json' }
   })
 const exportKnowledgeArticles = () => http.get('/api/v1/kb/articles/export')
+
+// Agent-facing knowledge base reads (conversation "知识库" sidebar tab).
+// Published articles only; the server enforces this regardless of params.
+const listAgentKbArticles = (params) => http.get('/api/v1/agent/kb/articles', { params })
+const getAgentKbArticle = (id) => http.get(`/api/v1/agent/kb/articles/${id}`)
+// Two-level category tree used by the sidebar filter. Read-only and
+// available to any agent (unlike the admin-only /api/v1/kb/categories).
+const listAgentKbCategories = () => http.get('/api/v1/agent/kb/categories')
 const saveDraft = (uuid, type, data) =>
   http.post(`/api/v1/conversations/${uuid}/draft`, { ...data, type }, {
     headers: {
@@ -817,6 +825,9 @@ export default {
   deleteKnowledgeArticle,
   importKnowledgeArticles,
   exportKnowledgeArticles,
+  listAgentKbArticles,
+  getAgentKbArticle,
+  listAgentKbCategories,
   createTeam,
   updateTeam,
   getSettings,

@@ -117,6 +117,7 @@
 <script setup>
 import { ref, watch, computed, toRaw, onMounted, onUnmounted } from 'vue'
 import { handleHTTPError } from '@shared-ui/utils/http.js'
+import { getTextFromHTML } from '@shared-ui/utils/string.js'
 import { EMITTER_EVENTS } from '@main/constants/emitterEvents.js'
 import { MACRO_CONTEXT } from '@main/constants/conversation'
 import { useUserStore } from '@main/stores/user'
@@ -248,12 +249,31 @@ const handleCopilotInsertReply = (html) => {
   htmlContent.value = html
 }
 
+// Knowledge base "发送正文": replaces the draft with the article body and
+// sends it immediately through the regular pipeline (optimistic pending
+// message, email / tag warnings, rollback on failure). A send that is
+// already in flight is ignored so rapid clicks cannot double-send.
+//
+// useDraftManager keeps `htmlContent` and `textContent` as two independent
+// refs, and processSend's `hasTextContent` guard only looks at textContent.
+// Without an explicit sync here the guard would read empty and silently
+// skip the send, which is exactly the bug this handler originally had.
+const handleKbSendContent = async (html) => {
+  if (!html || isSending.value) return
+  if (messageType.value === 'private_note') messageType.value = 'reply'
+  htmlContent.value = html
+  textContent.value = getTextFromHTML(html)
+  await processSend()
+}
+
 onMounted(() => {
   emitter.on(EMITTER_EVENTS.COPILOT_INSERT_REPLY, handleCopilotInsertReply)
+  emitter.on(EMITTER_EVENTS.KB_SEND_CONTENT, handleKbSendContent)
 })
 
 onUnmounted(() => {
   emitter.off(EMITTER_EVENTS.COPILOT_INSERT_REPLY, handleCopilotInsertReply)
+  emitter.off(EMITTER_EVENTS.KB_SEND_CONTENT, handleKbSendContent)
 })
 
 /**

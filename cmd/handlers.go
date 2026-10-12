@@ -214,6 +214,13 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.POST("/api/v1/agent/canned-pins/{source}/{id}", perm(handlePinCannedResponse, "messages:write"))
 	g.DELETE("/api/v1/agent/canned-pins/{source}/{id}", perm(handleUnpinCannedResponse, "messages:write"))
 
+	// Agent-facing knowledge base reads for the conversation "知识库"
+	// sidebar tab: read-only and restricted to published articles. The
+	// admin endpoints below remain gated by `knowledge_base:manage`.
+	g.GET("/api/v1/agent/kb/articles", perm(handleListAgentKbArticles, "messages:read"))
+	g.GET("/api/v1/agent/kb/articles/{id}", perm(handleGetAgentKbArticle, "messages:read"))
+	g.GET("/api/v1/agent/kb/categories", perm(handleGetAgentKbCategories, "messages:read"))
+
 	// Knowledge base (客服知识库) — two-level category tree, paginated
 	// article listing, single-article CRUD and bulk import / export.
 	g.GET("/api/v1/kb/categories", perm(handleGetKnowledgeCategories, "knowledge_base:manage"))

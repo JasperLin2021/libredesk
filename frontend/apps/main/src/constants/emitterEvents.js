@@ -7,5 +7,6 @@ export const EMITTER_EVENTS = {
     SET_NESTED_COMMAND: 'set-nested-command',
     CONVERSATION_SIDEBAR_TOGGLE: 'conversation-sidebar-toggle',
     SCROLL_TO_MESSAGE: 'scroll-to-message',
-    COPILOT_INSERT_REPLY: 'copilot-insert-reply'
+    COPILOT_INSERT_REPLY: 'copilot-insert-reply',
+    KB_SEND_CONTENT: 'kb-send-content'
 }
