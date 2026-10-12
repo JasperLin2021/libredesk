@@ -79,6 +79,22 @@ export const useUserStore = defineStore('user', () => {
     user.value = userData
   }
 
+  // Reset user state to defaults. Used on logout to clear pinia state
+  // before the SPA navigates back to the login screen.
+  const clearUser = () => {
+    user.value = {
+      id: null,
+      first_name: '',
+      last_name: '',
+      avatar_url: '',
+      email: '',
+      teams: [],
+      permissions: [],
+      roles: [],
+      availability_status: 'offline',
+    }
+  }
+
   const setAvatar = (avatarURL) => {
     if (typeof avatarURL !== 'string') {
       console.warn('Avatar URL must be a string')
@@ -135,6 +151,7 @@ export const useUserStore = defineStore('user', () => {
     hasReportTabPermissions,
     setCurrentUser,
     getCurrentUser,
+    clearUser,
     clearAvatar,
     setAvatar,
     updateUserAvailability,

@@ -129,6 +129,7 @@ import { Switch } from '@shared-ui/components/ui/switch'
 import { ChevronsUpDown, CircleUserRound, Keyboard, LogOut } from 'lucide-vue-next'
 import { useUserStore } from '../../stores/user'
 import { useRouter } from 'vue-router'
+import api from '../../api'
 import KeyboardShortcutsDialog from '../KeyboardShortcutsDialog.vue'
 
 import { useColorMode } from '@vueuse/core'
@@ -140,7 +141,15 @@ const router = useRouter()
 const { t } = useI18n()
 const showShortcuts = ref(false)
 
-const logout = () => {
-  window.location.href = '/logout'
+const logout = async () => {
+  try {
+    await api.logout()
+  } catch (e) {
+    // Even if the API call fails (e.g. session already expired) we still
+    // want to clear local state and return to the login screen.
+    console.warn('Logout request failed:', e)
+  }
+  userStore.clearUser()
+  await router.push({ name: 'login' })
 }
 </script>

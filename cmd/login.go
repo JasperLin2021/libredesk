@@ -72,6 +72,12 @@ func handleLogin(r *fastglue.Request) error {
 }
 
 // handleLogout logs out the user and redirects to the dashboard.
+//
+// NOTE: Prefer handleLogoutAPI for SPA clients. This handler exists for
+// backwards compatibility with bookmarks / curl / direct GET navigation.
+// The 302 redirect uses a relative path "/" which, when the request was
+// proxied to the backend (e.g. via Vite dev server) is resolved against
+// the backend URL rather than the SPA, so it is not reliable as a UX.
 func handleLogout(r *fastglue.Request) error {
 	var (
 		app   = r.Context.(*App)
@@ -94,4 +100,29 @@ func handleLogout(r *fastglue.Request) error {
 	r.RequestCtx.Response.Header.Add("Pragma", "no-cache")
 	r.RequestCtx.Response.Header.Add("Expires", "-1")
 	return r.RedirectURI("/", fasthttp.StatusFound, nil, "")
+}
+
+// handleLogoutAPI handles API-based logout (POST /api/v1/auth/logout).
+//
+// It only destroys the server-side session and returns 200 OK. The SPA
+// is responsible for clearing the local user store and navigating to the
+// login screen via the in-app router, which keeps the browser on the
+// SPA origin instead of a 302 redirect to the backend URL.
+func handleLogoutAPI(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		ip    = realip.FromRequest(r.RequestCtx)
+	)
+
+	// Insert activity log.
+	if err := app.activityLog.Logout(auser.ID, auser.Email, ip); err != nil {
+		app.lo.Error("error creating logout activity log", "error", err)
+	}
+
+	if err := app.auth.DestroySession(r); err != nil {
+		app.lo.Error("error destroying session", "error", err)
+		return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+	}
+	return r.SendEnvelope(true)
 }

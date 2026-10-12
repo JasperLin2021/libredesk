@@ -156,6 +156,11 @@ const login = (data) => http.post(`/api/v1/auth/login`, data, {
     'Content-Type': 'application/json'
   }
 })
+const logout = () => http.post('/api/v1/auth/logout', {}, {
+  headers: {
+    'Content-Type': 'application/json'
+  }
+})
 const getAutomationRules = (type) =>
   http.get(`/api/v1/automations/rules`, {
     params: { type: type }
@@ -704,6 +709,7 @@ const deleteAllNotifications = () => http.delete('/api/v1/notifications')
 
 export default {
   login,
+  logout,
   deleteUser,
   importAgents,
   getAgentImportStatus,

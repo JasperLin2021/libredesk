@@ -20,6 +20,7 @@ const maxPageSize = 500
 func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	// Authentication.
 	g.POST("/api/v1/auth/login", rateLimit(handleLogin, "auth"))
+	g.POST("/api/v1/auth/logout", auth(handleLogoutAPI))
 	g.GET("/logout", auth(handleLogout))
 	g.GET("/api/v1/oidc/{id}/login", rateLimit(handleOIDCLogin, "auth"))
 	g.GET("/api/v1/oidc/{id}/finish", rateLimit(handleOIDCCallback, "auth"))
@@ -428,10 +429,18 @@ func serveIndexPage(r *fastglue.Request) error {
 	// Serve the index.html file from the embedded filesystem.
 	file, err := app.fs.Get(path.Join(frontendDir, "index.html"))
 	if err != nil {
-		return r.SendErrorEnvelope(http.StatusNotFound, app.i18n.T("validation.notFoundFile"), nil, envelope.NotFoundError)
+		// In dev/local mode (`go run`) the frontend build may not have been
+		// produced yet, so `frontend/dist/main/index.html` is missing from
+		// the embedded FS. Returning a JSON NotFoundException here breaks
+		// the UX (the SPA never gets a chance to mount), so fall back to a
+		// minimal HTML shell that the SPA can bootstrap from.
+		app.lo.Warn("frontend index.html missing from embedded FS; serving fallback", "dir", frontendDir, "error", err)
+		r.RequestCtx.Response.Header.Set("Content-Type", "text/html; charset=utf-8")
+		r.RequestCtx.SetBodyString(indexPageFallbackHTML)
+	} else {
+		r.RequestCtx.Response.Header.Set("Content-Type", "text/html")
+		r.RequestCtx.SetBody(file.ReadBytes())
 	}
-	r.RequestCtx.Response.Header.Set("Content-Type", "text/html")
-	r.RequestCtx.SetBody(file.ReadBytes())
 
 	// Set CSRF cookie if not already set.
 	if err := app.auth.SetCSRFCookie(r); err != nil {
@@ -440,6 +449,38 @@ func serveIndexPage(r *fastglue.Request) error {
 	}
 	return nil
 }
+
+// indexPageFallbackHTML is the HTML shell served when the embedded
+// frontend bundle (frontend/dist/main/index.html) is not available.
+// It tells the user that the frontend assets are missing instead of
+// rendering a raw JSON error envelope.
+const indexPageFallbackHTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Frontend build missing</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         margin: 0; padding: 48px; background: #fafafa; color: #1f2328; }
+  .card { max-width: 640px; margin: 0 auto; background: #fff;
+           border: 1px solid #d0d7de; border-radius: 8px; padding: 32px;
+           box-shadow: 0 1px 0 rgba(31,35,40,0.04); }
+  h1 { margin: 0 0 12px; font-size: 20px; }
+  p { margin: 8px 0; line-height: 1.5; }
+  code { background: #f6f8fa; padding: 2px 6px; border-radius: 4px;
+         font-size: 13px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Libredesk frontend assets are not built</h1>
+    <p>The backend could not find <code>frontend/dist/main/index.html</code>.</p>
+    <p>Run <code>cd frontend &amp;&amp; npm install &amp;&amp; npm run build</code> first,
+       then rebuild the backend (<code>go build ./cmd</code>) so the assets
+       get embedded into the binary.</p>
+  </div>
+</body>
+</html>`
 
 // serveWidgetIndexPage serves the widget index page of the application.
 func serveWidgetIndexPage(r *fastglue.Request) error {
