@@ -97,6 +97,7 @@
         :disabled="isDraftLoading"
         :enableMentions="messageType === 'private_note'"
         :enableInlineImages="conversationStore.current.inbox_channel === 'email'"
+        :enableKbSuggestions="messageType === 'reply'"
         :getSuggestions="getSuggestions"
         @aiPromptSelected="handleAiPromptSelected"
         @send="handleSend"

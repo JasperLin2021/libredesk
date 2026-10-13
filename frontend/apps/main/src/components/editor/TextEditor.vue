@@ -1,5 +1,9 @@
 <template>
-  <div class="editor-wrapper h-full overflow-y-auto" :class="{ 'pointer-events-none': disabled }">
+  <div
+    ref="editorWrapperRef"
+    class="editor-wrapper h-full overflow-y-auto"
+    :class="{ 'pointer-events-none': disabled }"
+  >
     <BubbleMenu
       :editor="editor"
       :tippy-options="{ duration: 100 }"
@@ -115,11 +119,34 @@
         </form>
       </DialogContent>
     </Dialog>
+
+    <!-- Knowledge base autocomplete popup. Anchored directly above the
+         reply editor at the same width via `kbPopupPos`, teleported to
+         body so it can sit above other absolutely-positioned editor UI
+         without being clipped. Visibility is driven by `kbVisible` which
+         is toggled by the editor's onUpdate / selectionUpdate handlers
+         below. -->
+    <Teleport to="body">
+      <div
+        v-if="kbVisible && kbPopupPos"
+        class="kb-suggestion-popup"
+        :style="kbPopupStyle"
+      >
+        <KnowledgeSuggestionList
+          :items="kbArticles"
+          :query="kbCurrentQuery"
+          :selected-index="kbSelectedIndex"
+          :loading="kbLoading"
+          @select="onKbArticlePicked"
+          @hover="(i) => (kbSelectedIndex = i)"
+        />
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onUnmounted } from 'vue'
+import { ref, watch, onUnmounted, onMounted, nextTick, computed } from 'vue'
 import { useEditor, EditorContent, BubbleMenu } from '@tiptap/vue-3'
 import {
   ChevronDown,
@@ -159,6 +186,11 @@ import { useTypingIndicator } from '@shared-ui/composables'
 import { useConversationStore } from '@main/stores/conversation'
 import { useInlineImageUpload } from '@main/composables/useInlineImageUpload'
 import mentionSuggestion from './mentionSuggestion'
+import KnowledgeSuggestionList from './KnowledgeSuggestionList.vue'
+import api from '@main/api'
+import { EMITTER_EVENTS } from '@main/constants/emitterEvents.js'
+import { useEmitter } from '@main/composables/useEmitter'
+import { handleHTTPError } from '@shared-ui/utils/http.js'
 
 const textContent = defineModel('textContent', { default: '' })
 const htmlContent = defineModel('htmlContent', { default: '' })
@@ -192,6 +224,15 @@ const props = defineProps({
   enableInlineImages: {
     type: Boolean,
     default: false
+  },
+  // Knowledge base autocomplete. When true, typing a 2+ character word in
+  // the editor triggers a search against the published knowledge base and
+  // shows a floating suggestion list. Selecting an item fetches the full
+  // article body and dispatches KB_SEND_CONTENT so the parent reply box
+  // sends it through the regular pipeline.
+  enableKbSuggestions: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -220,6 +261,236 @@ const conversationStore = useConversationStore()
 const { startTyping, stopTyping } = useTypingIndicator(conversationStore.sendTyping, {
   get isPrivateMessage() { return props.messageType === 'private_note' }
 }) 
+
+// Knowledge base autocomplete state. `kbArticles` holds the latest search
+// results, `kbPopupPos` is the editor-anchored coordinates used to position
+// the popup directly above the editor at the same width, and `kbVisible`
+// gates the popup render. `kbCurrentQuery` mirrors the latest search term
+// so the dropdown can highlight the keyword inside titles and summaries.
+const kbEmitter = useEmitter()
+const kbArticles = ref([])
+const kbLoading = ref(false)
+const kbSelectedIndex = ref(0)
+const kbPopupPos = ref(null)
+const kbVisible = ref(false)
+const kbDebounceTimer = ref(null)
+const kbRequestSeq = ref(0)
+const kbCurrentQuery = ref('')
+const kbSending = ref(false)
+const KB_MIN_QUERY_LEN = 2
+const KB_DEBOUNCE_MS = 300
+const KB_MAX_RESULTS = 6
+const KB_POPUP_MAX_HEIGHT = 320
+// Match a contiguous run of letters / digits / underscore immediately
+// before the caret. The `u` flag is required for `\p{L}` to include
+// Han / CJK characters, which is what makes the autocomplete usable
+// for Chinese keywords (e.g. "游戏常见问题").
+const KB_WORD_REGEX = /[\p{L}\p{N}_]+$/u
+
+// The popup is rendered above the editor wrapper, sharing its width and
+// left edge. Anchoring it to the wrapper (instead of the caret) means
+// the dropdown does not jump around as the user keeps typing - it sits
+// in a stable location directly above the reply box.
+const editorWrapperRef = ref(null)
+
+const kbPopupStyle = computed(() => {
+  const pos = kbPopupPos.value
+  if (!pos) return { display: 'none' }
+  // Cap the height to the available space above the editor so the popup
+  // never bleeds into the viewport top. When the editor sits high on the
+  // page this shrinks the popup and lets it scroll instead.
+  const availableHeight = Math.max(
+    120,
+    Math.min(KB_POPUP_MAX_HEIGHT, pos.aboveHeight - 8)
+  )
+  return {
+    position: 'fixed',
+    left: `${pos.left}px`,
+    // `bottom` is the distance from the popup's bottom edge to the
+    // viewport's bottom edge. Setting it to `innerHeight - editorTop`
+    // places the popup's bottom flush with the editor's top.
+    bottom: `${pos.bottom}px`,
+    width: `${pos.width}px`,
+    zIndex: 9999,
+    maxHeight: `${availableHeight}px`
+  }
+})
+
+// Only run the autocomplete flow when the editor is in public reply mode
+// and the caller opted in via `enableKbSuggestions`. Private notes are
+// excluded so an agent typing in a private note never accidentally sends
+// a knowledge article to themselves.
+const kbSuggestionsActive = computed(
+  () => props.enableKbSuggestions && props.messageType !== 'private_note' && !props.disabled
+)
+
+const closeKbPopup = () => {
+  kbVisible.value = false
+  kbArticles.value = []
+  kbSelectedIndex.value = 0
+  kbPopupPos.value = null
+  kbCurrentQuery.value = ''
+  if (kbDebounceTimer.value) {
+    clearTimeout(kbDebounceTimer.value)
+    kbDebounceTimer.value = null
+  }
+  // Bump the request sequence so any in-flight response from a previous
+  // keystroke is recognized as stale and dropped on arrival.
+  kbRequestSeq.value++
+  kbLoading.value = false
+}
+
+// Compute the position of the suggestion popup relative to the editor
+// wrapper. The popup is anchored to the wrapper's top edge (its bottom
+// touches the editor's top) and shares the wrapper's width and left
+// position so it visually sits directly above the reply box.
+const computeWrapperPopupPos = () => {
+  const wrapper = editorWrapperRef.value
+  if (!wrapper) return null
+  const rect = wrapper.getBoundingClientRect()
+  if (rect.width === 0) return null
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth
+  const minLeft = 8
+  // The popup uses the wrapper's exact width, so no extra max-width
+  // clamp is needed; just make sure we never start past the right edge.
+  const maxLeft = Math.max(minLeft, viewportWidth - rect.width - 8)
+  const left = Math.min(Math.max(rect.left, minLeft), maxLeft)
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight
+  // `bottom` is the distance from the popup's bottom edge to the
+  // viewport's bottom edge; `innerHeight - rect.top` places that edge
+  // exactly at the editor's top.
+  const bottom = viewportHeight - rect.top
+  return {
+    left,
+    bottom,
+    width: rect.width,
+    aboveHeight: rect.top
+  }
+}
+
+// Extract the last "word" immediately before the caret. Returns an empty
+// string when the caret sits after whitespace or the document is empty.
+const extractCurrentWord = () => {
+  const e = editor.value
+  if (!e) return ''
+  const { from } = e.state.selection
+  // Use the start of the current block as the left boundary so the regex
+  // only sees the paragraph under the caret. This prevents the popup from
+  // showing matches from earlier blocks that the user is not actively
+  // editing, and it keeps the work bounded for very long drafts.
+  const blockStart = e.state.selection.$from.start()
+  const blockText = e.state.doc.textBetween(blockStart, from, '\n', '\n')
+  const match = blockText.match(KB_WORD_REGEX)
+  return match ? match[0] : ''
+}
+
+const isMentionContext = (word) => typeof word === 'string' && word.startsWith('@')
+
+// Issue the actual backend search. Each call captures the current
+// `kbRequestSeq` value and only commits results if the sequence has not
+// advanced by the time the response lands. This effectively cancels
+// stale responses from earlier keystrokes without needing axios
+// AbortController support inside the api wrapper.
+const runKbSearch = async (query) => {
+  const seq = ++kbRequestSeq.value
+  kbLoading.value = true
+  try {
+    const resp = await api.listAgentKbArticles({
+      keyword_field: 'all',
+      keywords: query,
+      page: 1,
+      per_page: KB_MAX_RESULTS
+    })
+    if (seq !== kbRequestSeq.value) return // a newer keystroke has superseded us
+    const data = resp?.data?.data || {}
+    const articles = data.articles || []
+    if (articles.length === 0) {
+      // No matches: close the popup silently rather than surface an
+      // empty state. The agent is mid-typing, and the next keystroke
+      // will re-trigger the search if they keep going.
+      closeKbPopup()
+      return
+    }
+    kbArticles.value = articles
+    kbSelectedIndex.value = 0
+  } catch (err) {
+    if (seq !== kbRequestSeq.value) return
+    // Silent: do not interrupt typing with a toast for a background
+    // autocomplete request.
+    closeKbPopup()
+  } finally {
+    if (seq === kbRequestSeq.value) {
+      kbLoading.value = false
+    }
+  }
+}
+
+const scheduleKbSearch = (query) => {
+  // Track the active query so the dropdown can highlight matches against
+  // the same text the user is currently editing.
+  kbCurrentQuery.value = query
+  if (kbDebounceTimer.value) {
+    clearTimeout(kbDebounceTimer.value)
+  }
+  kbDebounceTimer.value = setTimeout(() => {
+    kbDebounceTimer.value = null
+    runKbSearch(query)
+  }, KB_DEBOUNCE_MS)
+}
+
+// React to every edit / caret move. Decides whether to open, refresh, or
+// close the popup based on the current word at the caret.
+const refreshKbFromCaret = () => {
+  if (!kbSuggestionsActive.value) {
+    closeKbPopup()
+    return
+  }
+  const word = extractCurrentWord()
+  if (isMentionContext(word) || word.length < KB_MIN_QUERY_LEN) {
+    closeKbPopup()
+    return
+  }
+  kbPopupPos.value = computeWrapperPopupPos()
+  if (!kbPopupPos.value) {
+    closeKbPopup()
+    return
+  }
+  kbVisible.value = true
+  scheduleKbSearch(word)
+}
+
+// User picked an article from the list: fetch the full body and hand it
+// off to the reply box's existing KB_SEND_CONTENT pipeline. The reply
+// box is responsible for replacing the draft and triggering the send so
+// we keep all send-side concerns (optimistic message, email / tag
+// warnings, rollback) in one place.
+const onKbArticlePicked = async (article) => {
+  if (!article || kbSending.value) return
+  closeKbPopup()
+  kbSending.value = true
+  try {
+    const resp = await api.getAgentKbArticle(article.id)
+    const content = resp?.data?.data?.content
+    if (!content) {
+      // An article without a body cannot be sent. Surface this as a toast
+      // so the agent understands why nothing happened, instead of seeing
+      // the editor silently unchanged.
+      kbEmitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+        variant: 'destructive',
+        description: handleHTTPError(new Error('empty content')).message
+      })
+      return
+    }
+    kbEmitter.emit(EMITTER_EVENTS.KB_SEND_CONTENT, content)
+  } catch (err) {
+    kbEmitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      variant: 'destructive',
+      description: handleHTTPError(err).message
+    })
+  } finally {
+    kbSending.value = false
+  }
+}
 
 // To preseve the table styling in emails, need to set the table style inline.
 // Created these custom extensions to set the table style inline.
@@ -280,6 +551,11 @@ const CustomMention = Mention.extend({
 })
 
 const isInternalUpdate = ref(false)
+// Flipped to true right before the parent watcher calls `setContent` so the
+// editor's onUpdate hook can tell a user keystroke apart from a draft
+// being loaded into the editor, and avoid surfacing the KB popup for
+// content the agent did not just type.
+const kbIsProgrammaticUpdate = ref(false)
 
 const buildExtensions = () => {
   const extensions = [
@@ -342,6 +618,44 @@ const editor = useEditor({
     handlePaste,
     handleDrop,
     handleKeyDown: (view, event) => {
+      // Knowledge base autocomplete keyboard handling. Runs before any
+      // ProseMirror plugin so a visible popup can claim ArrowUp/Down,
+      // Enter, and Escape without the editor creating a new line or the
+      // mention extension reacting first.
+      if (kbVisible.value && kbArticles.value.length > 0) {
+        if (event.key === 'ArrowUp') {
+          kbSelectedIndex.value =
+            (kbSelectedIndex.value - 1 + kbArticles.value.length) % kbArticles.value.length
+          event.preventDefault()
+          return true
+        }
+        if (event.key === 'ArrowDown') {
+          kbSelectedIndex.value = (kbSelectedIndex.value + 1) % kbArticles.value.length
+          event.preventDefault()
+          return true
+        }
+        // Only intercept plain Enter. Shift+Enter inserts a soft break and
+        // an Enter mid-IME-composition confirms the candidate, not a new
+        // line, so let both pass through to the editor.
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+          const picked = kbArticles.value[kbSelectedIndex.value]
+          if (picked) {
+            event.preventDefault()
+            onKbArticlePicked(picked)
+          }
+          return true
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          closeKbPopup()
+          return true
+        }
+      } else if (kbVisible.value && event.key === 'Escape') {
+        // Empty / loading popup: Escape still closes it.
+        event.preventDefault()
+        closeKbPopup()
+        return true
+      }
       if (event.ctrlKey && event.key.toLowerCase() === 'b') {
         event.stopPropagation()
         return false
@@ -368,10 +682,29 @@ const editor = useEditor({
     if (props.enableMentions) {
       emit('mentionsChanged', extractMentions())
     }
+
+    // Only react to user-driven updates. Programmatic `setContent` (e.g.
+    // when a draft is loaded by the parent) also fires this hook but
+    // must not surface the autocomplete popup for content the agent did
+    // not just type.
+    if (!kbIsProgrammaticUpdate.value && editor.view.hasFocus()) {
+      refreshKbFromCaret()
+    }
+  },
+  // Caret moves (including arrow keys and clicks) update the current word,
+  // so re-evaluate the popup here too. Without this the popup would stay
+  // anchored to the old position even after the user navigated away.
+  onSelectionUpdate: ({ editor }) => {
+    if (!kbIsProgrammaticUpdate.value && editor.view.hasFocus()) {
+      refreshKbFromCaret()
+    }
   },
   onBlur: () => {
     // Stop typing when editor loses focus
     stopTyping()
+    // Defer close so a click on the popup (mousedown.prevent) is not
+    // racing the blur and tearing the popup down before the click lands.
+    setTimeout(() => closeKbPopup(), 120)
   }
 })
 
@@ -379,9 +712,18 @@ watch(
   htmlContent,
   (newContent) => {
     if (!isInternalUpdate.value && editor.value && newContent !== editor.value.getHTML()) {
+      // Mark the upcoming editor update as programmatic so the
+      // autocomplete popup does not flash open when a draft is loaded
+      // into the editor from the parent.
+      kbIsProgrammaticUpdate.value = true
       editor.value.commands.setContent(newContent || '', false)
       textContent.value = editor.value.getText()
       editor.value.commands.focus()
+      // onUpdate fires synchronously inside setContent, so by the time
+      // we reach nextTick the editor has already consumed the flag.
+      nextTick(() => {
+        kbIsProgrammaticUpdate.value = false
+      })
     }
   },
   { immediate: true }
@@ -395,7 +737,57 @@ watch(
   }
 )
 
+// When the user switches to private note or the editor becomes disabled,
+// tear down the popup so the next keystroke does not resurrect a stale
+// suggestion list pointing at the wrong mode.
+watch(
+  [() => props.messageType, () => props.disabled, () => props.enableKbSuggestions],
+  ([newType, newDisabled, newEnabled]) => {
+    if (newType === 'private_note' || newDisabled || !newEnabled) {
+      closeKbPopup()
+    }
+  }
+)
+
+// Reposition the popup as the page scrolls or the viewport resizes. The
+// caret's screen coordinates change in both cases, and a popup left at
+// the old coordinates would float away from the actual cursor.
+const repositionKbPopup = () => {
+  if (!kbVisible.value) return
+  const pos = computeWrapperPopupPos()
+  if (pos) {
+    kbPopupPos.value = pos
+  } else {
+    closeKbPopup()
+  }
+}
+
+let kbScrollRaf = null
+const onScrollOrResize = () => {
+  if (!kbVisible.value) return
+  if (kbScrollRaf) cancelAnimationFrame(kbScrollRaf)
+  kbScrollRaf = requestAnimationFrame(repositionKbPopup)
+}
+
+onMounted(() => {
+  window.addEventListener('resize', onScrollOrResize, { passive: true })
+  window.addEventListener('scroll', onScrollOrResize, { passive: true })
+  // Also catch scroll inside the editor's own scroll container.
+  nextTick(() => {
+    const dom = editor.value?.view?.dom
+    if (dom) {
+      dom.addEventListener('scroll', onScrollOrResize, { passive: true })
+    }
+  })
+})
+
 onUnmounted(() => {
+  closeKbPopup()
+  if (kbScrollRaf) cancelAnimationFrame(kbScrollRaf)
+  window.removeEventListener('resize', onScrollOrResize)
+  window.removeEventListener('scroll', onScrollOrResize)
+  const dom = editor.value?.view?.dom
+  if (dom) dom.removeEventListener('scroll', onScrollOrResize)
   editor.value?.destroy()
 })
 
