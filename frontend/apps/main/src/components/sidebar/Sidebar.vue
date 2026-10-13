@@ -3,7 +3,8 @@ import {
   adminNavItems,
   reportsNavItems,
   accountNavItems,
-  contactNavItems
+  contactNavItems,
+  historyNavItems
 } from '../../constants/navigation'
 import { useRoute, useRouter } from 'vue-router'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@shared-ui/components/ui/collapsible'
@@ -61,7 +62,8 @@ import {
   Lightbulb,
   MessageSquareText,
   BookOpen,
-  LibraryBig
+  LibraryBig,
+  History
 } from 'lucide-vue-next'
 
 const navIconMap = {
@@ -94,7 +96,9 @@ const navIconMap = {
   Lightbulb,
   MessageSquareText,
   BookOpen,
-  LibraryBig
+  LibraryBig,
+  History,
+  Search
 }
 import {
   DropdownMenu,
@@ -217,11 +221,17 @@ const navigateToViewInbox = (viewID) => {
 const filteredAdminNavItems = computed(() => filterNavItems(adminNavItems, userStore.can))
 const filteredReportsNavItems = computed(() => filterNavItems(reportsNavItems, userStore.can))
 const filteredContactsNavItems = computed(() => filterNavItems(contactNavItems, userStore.can))
+const filteredHistoryNavItems = computed(() => filterNavItems(historyNavItems, userStore.can))
 
 // For auto opening admin collapsibles when a child route is active
 const openAdminCollapsible = ref(null)
 const toggleAdminCollapsible = (titleKey) => {
   openAdminCollapsible.value = openAdminCollapsible.value === titleKey ? null : titleKey
+}
+// For auto opening history collapsibles when a child route is active
+const openHistoryCollapsible = ref(null)
+const toggleHistoryCollapsible = (titleKey) => {
+  openHistoryCollapsible.value = openHistoryCollapsible.value === titleKey ? null : titleKey
 }
 // Watch for route changes and update the active collapsible
 watch(
@@ -233,6 +243,19 @@ watch(
     })
     if (activeItem) {
       openAdminCollapsible.value = activeItem.titleKey
+    }
+  },
+  { immediate: true }
+)
+watch(
+  [() => route.path, filteredHistoryNavItems],
+  () => {
+    const activeItem = filteredHistoryNavItems.value.find((item) => {
+      if (!item.children) return false
+      return item.children.some((child) => isActiveParent(child.href))
+    })
+    if (activeItem) {
+      openHistoryCollapsible.value = activeItem.titleKey
     }
   },
   { immediate: true }
@@ -320,6 +343,60 @@ const viewToDelete = ref(null)
                     <span>{{ t(item.titleKey) }}</span>
                   </router-link>
                 </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+        </SidebarContent>
+      </Sidebar>
+    </template>
+
+    <!-- History sidebar -->
+    <template
+      v-if="route.matched.some((record) => record.name && record.name.startsWith('history'))"
+    >
+      <Sidebar collapsible="offcanvas" class="sidebar-secondary">
+        <SidebarHeader>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <div class="px-1">
+                <span class="font-semibold text-xl">
+                  {{ t('globals.terms.serviceHistory') }}
+                </span>
+              </div>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarMenu>
+              <SidebarMenuItem v-for="item in filteredHistoryNavItems" :key="item.titleKey">
+                <Collapsible
+                  class="group/collapsible"
+                  :open="openHistoryCollapsible === item.titleKey"
+                  @update:open="toggleHistoryCollapsible(item.titleKey)"
+                >
+                  <CollapsibleTrigger as-child>
+                    <SidebarMenuButton :isActive="isActiveParent(item.href)">
+                      <component :is="navIconMap[item.icon]" v-if="item.icon" />
+                      <span>{{ t(item.titleKey) }}</span>
+                      <ChevronRight
+                        class="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"
+                      />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem v-for="child in item.children" :key="child.titleKey">
+                        <SidebarMenuButton size="sm" :isActive="isActiveParent(child.href)" asChild>
+                          <router-link :to="child.href">
+                            <component :is="navIconMap[child.icon]" v-if="child.icon" />
+                            <span>{{ t(child.titleKey) }}</span>
+                          </router-link>
+                        </SidebarMenuButton>
+                      </SidebarMenuSubItem>
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </Collapsible>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroup>

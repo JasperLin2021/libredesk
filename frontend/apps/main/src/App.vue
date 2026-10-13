@@ -37,6 +37,20 @@
                     </TooltipContent>
                   </Tooltip>
                 </SidebarMenuItem>
+                <SidebarMenuItem v-if="userStore.can('conversations:read')">
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <SidebarMenuButton asChild :isActive="route.path.startsWith('/history')">
+                        <router-link :to="{ name: 'history-search' }">
+                          <History />
+                        </router-link>
+                      </SidebarMenuButton>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>{{ t('globals.terms.history') }}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </SidebarMenuItem>
                 <SidebarMenuItem v-if="userStore.hasReportTabPermissions">
                   <Tooltip>
                     <TooltipTrigger as-child>
@@ -158,7 +172,7 @@ import { toast as sooner } from 'vue-sonner'
 import Sidebar from '@main/components/sidebar/Sidebar.vue'
 import Command from '@/features/command/CommandBox.vue'
 import CreateConversation from '@/features/conversation/CreateConversation.vue'
-import { Inbox, Shield, FileLineChart, BookUser } from 'lucide-vue-next'
+import { Inbox, Shield, FileLineChart, BookUser, History } from 'lucide-vue-next'
 import SmallScreenOverlay from '@/components/SmallScreenOverlay.vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'

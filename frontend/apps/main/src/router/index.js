@@ -63,6 +63,19 @@ const routes = [
         ]
       },
       {
+        path: '/history',
+        name: 'history',
+        redirect: '/history/search',
+        children: [
+          {
+            path: 'search',
+            name: 'history-search',
+            component: () => import('@main/views/history/HistorySearchView.vue'),
+            meta: { titleKey: 'globals.terms.search', hidePageHeader: true }
+          }
+        ]
+      },
+      {
         path: '/inboxes/teams/:teamID',
         name: 'teams',
         props: true,

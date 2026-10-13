@@ -261,3 +261,17 @@ export const contactNavItems = [
     icon: 'Contact'
   }
 ]
+
+export const historyNavItems = [
+  {
+    titleKey: 'globals.terms.history',
+    icon: 'History',
+    children: [
+      {
+        titleKey: 'globals.terms.search',
+        href: '/history/search',
+        icon: 'Search'
+      }
+    ]
+  }
+]

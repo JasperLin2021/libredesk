@@ -24,7 +24,21 @@
               :key="item.id || item.uuid"
               class="p-6 hover:bg-accent/50 transition duration-200 ease-in-out group"
             >
+              <button
+                v-if="interactive"
+                type="button"
+                class="block w-full text-left"
+                @click="$emit('select', {
+                  type,
+                  item,
+                  conversationUuid: type === 'conversations' ? item.uuid : item.conversation_uuid,
+                  messageUuid: type === 'conversations' ? null : (item.message_uuid || item.uuid)
+                })"
+              >
+                <ResultItemBody :type="type" :item="item" />
+              </button>
               <router-link
+                v-else
                 :to="{
                   name: 'inbox-conversation',
                   params: {
@@ -34,61 +48,7 @@
                 }"
                 class="block"
               >
-                <div class="flex justify-between items-start">
-                  <div class="flex-grow">
-                    <!-- Reference number and status -->
-                    <div
-                      class="text-sm font-semibold mb-2 text-muted-foreground group-hover:text-primary transition duration-200 flex items-center gap-2"
-                    >
-                      <span>
-                        #{{
-                          type === 'conversations'
-                            ? item.reference_number
-                            : item.conversation_reference_number
-                        }}
-                      </span>
-                      <Badge variant="outline" class="text-xs font-medium">
-                        {{
-                          type === 'conversations'
-                            ? item.status
-                            : item.conversation_status
-                        }}
-                      </Badge>
-                    </div>
-
-                    <!-- Content -->
-                    <div
-                      class="text-foreground font-medium mb-2 text-lg group-hover:text-primary transition duration-200"
-                    >
-                      {{
-                        truncateText(
-                          type === 'conversations' ? item.subject : item.text_content,
-                          100
-                        )
-                      }}
-                    </div>
-
-                    <!-- Timestamp -->
-                    <div class="text-sm text-muted-foreground flex items-center">
-                      <ClockIcon class="h-4 w-4 mr-1" />
-                      {{
-                        formatDate(
-                          type === 'conversations' ? item.created_at : item.conversation_created_at
-                        )
-                      }}
-                    </div>
-                  </div>
-
-                  <!-- Right arrow icon -->
-                  <div
-                    class="bg-secondary rounded-full p-2 group-hover:bg-primary transition duration-200"
-                  >
-                    <ChevronRightIcon
-                      class="h-5 w-5 text-secondary-foreground group-hover:text-primary-foreground"
-                      aria-hidden="true"
-                    />
-                  </div>
-                </div>
+                <ResultItemBody :type="type" :item="item" />
               </router-link>
             </div>
           </div>
@@ -99,10 +59,8 @@
 </template>
 <script setup>
 import { computed, ref, watch } from 'vue'
-import { ChevronRightIcon, ClockIcon } from 'lucide-vue-next'
-import { format, parseISO } from 'date-fns'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@shared-ui/components/ui/tabs'
-import { Badge } from '@shared-ui/components/ui/badge'
+import ResultItemBody from './ResultItemBody.vue'
 
 const tabLabelKeys = {
   conversations: 'globals.terms.conversation',
@@ -113,8 +71,16 @@ const props = defineProps({
   results: {
     type: Object,
     required: true
+  },
+  // When true, clicking a result emits `select` instead of navigating to the
+  // conversation page.
+  interactive: {
+    type: Boolean,
+    default: false
   }
 })
+
+defineEmits(['select'])
 
 // Get the first available tab as default
 const defaultTab = computed(() => {
@@ -144,15 +110,4 @@ const tabsGridClass = computed(() => {
   if (tabCount <= 4) return 'grid-cols-4'
   return 'grid-cols-5'
 })
-
-const formatDate = (dateString) => {
-  const date = parseISO(dateString)
-  return format(date, 'MMM d, yyyy HH:mm')
-}
-
-const truncateText = (text, length) => {
-  if (!text) return ''
-  if (text.length <= length) return text
-  return text.slice(0, length) + '...'
-}
 </script>
