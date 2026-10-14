@@ -133,11 +133,11 @@
         :style="kbPopupStyle"
       >
         <KnowledgeSuggestionList
-          :items="kbArticles"
+          :items="allSuggestions"
           :query="kbCurrentQuery"
           :selected-index="kbSelectedIndex"
           :loading="kbLoading"
-          @select="onKbArticlePicked"
+          @select="onSuggestionPicked"
           @hover="(i) => (kbSelectedIndex = i)"
         />
       </div>
@@ -185,6 +185,8 @@ import TableHeader from '@tiptap/extension-table-header'
 import { useTypingIndicator } from '@shared-ui/composables'
 import { useConversationStore } from '@main/stores/conversation'
 import { useInlineImageUpload } from '@main/composables/useInlineImageUpload'
+import { useCannedResponsesStore } from '@main/stores/cannedResponses'
+import { useI18n } from 'vue-i18n'
 import mentionSuggestion from './mentionSuggestion'
 import KnowledgeSuggestionList from './KnowledgeSuggestionList.vue'
 import api from '@main/api'
@@ -269,6 +271,13 @@ const { startTyping, stopTyping } = useTypingIndicator(conversationStore.sendTyp
 // so the dropdown can highlight the keyword inside titles and summaries.
 const kbEmitter = useEmitter()
 const kbArticles = ref([])
+// Canned responses (常用语) matched against the current keyword. Unlike the
+// KB search these are filtered in-memory from the canned responses store
+// (which caches the agent's pinned / personal / global responses), so they
+// can be shown instantly while the KB API call is still in flight.
+const cannedStore = useCannedResponsesStore()
+const { t } = useI18n()
+const CANNED_MAX_RESULTS = 4
 const kbLoading = ref(false)
 const kbSelectedIndex = ref(0)
 const kbPopupPos = ref(null)
@@ -323,6 +332,55 @@ const kbPopupStyle = computed(() => {
 const kbSuggestionsActive = computed(
   () => props.enableKbSuggestions && props.messageType !== 'private_note' && !props.disabled
 )
+
+// Flattened suggestion list rendered by the popup: canned matches first,
+// then KB articles. `kbSelectedIndex` and the keyboard handler operate on
+// this combined order.
+const allSuggestions = computed(() => [...cannedMatches.value, ...kbArticles.value])
+
+// Filter the agent's canned responses (pinned / personal / global) against
+// the current keyword. Runs synchronously against the cached store, so it
+// can be recomputed on every keystroke without debounce. Results are
+// deduplicated by their underlying response identity - a pinned global
+// response shows once with the "置顶" badge instead of reappearing inside
+// its category branch.
+const computeCannedMatches = (query) => {
+  const q = (query || '').toLowerCase()
+  const results = []
+  const seen = new Set()
+  const push = (item, type, responseId, badge) => {
+    if (!(item.content || '').toLowerCase().includes(q)) return
+    const key = `${type}-${responseId}`
+    if (seen.has(key)) return
+    seen.add(key)
+    results.push({ type: 'canned', key, content: item.content, badge })
+  }
+  // Pinned rows dedup against their underlying personal / global response
+  // (same `source` + id), so the pinned copy wins and the original does
+  // not reappear in the personal list or its category branch.
+  cannedStore.pinned.forEach((p) => {
+    push(p, p.source || 'global', p.response_id ?? p.id, t('editor.suggestions.pinned'))
+  })
+  cannedStore.personal.forEach((p) => {
+    push(p, 'personal', p.id, t('editor.suggestions.personal'))
+  })
+  const walk = (cats) => {
+    ;(cats || []).forEach((cat) => {
+      ;(cat.responses || []).forEach((r) => push(r, 'global', r.id, cat.name))
+      walk(cat.children)
+    })
+  }
+  walk(cannedStore.globalTree)
+  return results.slice(0, CANNED_MAX_RESULTS)
+}
+
+// Reactive view over the canned store for the active query. Being a
+// computed means a late-arriving store fetch (first page load) or an edit
+// made in the canned responses sidebar refreshes the popup automatically.
+const cannedMatches = computed(() => {
+  if (!kbCurrentQuery.value) return []
+  return computeCannedMatches(kbCurrentQuery.value)
+})
 
 const closeKbPopup = () => {
   kbVisible.value = false
@@ -405,10 +463,13 @@ const runKbSearch = async (query) => {
     const data = resp?.data?.data || {}
     const articles = data.articles || []
     if (articles.length === 0) {
-      // No matches: close the popup silently rather than surface an
-      // empty state. The agent is mid-typing, and the next keystroke
-      // will re-trigger the search if they keep going.
-      closeKbPopup()
+      // No KB matches: only close the popup when the canned matches are
+      // empty too. With canned results on screen the popup stays up and
+      // the inline loading row simply disappears.
+      kbArticles.value = []
+      if (cannedMatches.value.length === 0) {
+        closeKbPopup()
+      }
       return
     }
     kbArticles.value = articles
@@ -416,8 +477,11 @@ const runKbSearch = async (query) => {
   } catch (err) {
     if (seq !== kbRequestSeq.value) return
     // Silent: do not interrupt typing with a toast for a background
-    // autocomplete request.
-    closeKbPopup()
+    // autocomplete request. Keep any canned matches that are showing.
+    kbArticles.value = []
+    if (cannedMatches.value.length === 0) {
+      closeKbPopup()
+    }
   } finally {
     if (seq === kbRequestSeq.value) {
       kbLoading.value = false
@@ -455,6 +519,10 @@ const refreshKbFromCaret = () => {
     closeKbPopup()
     return
   }
+  // Canned matches come from the cached store and resolve synchronously
+  // (they key off `kbCurrentQuery`, set inside scheduleKbSearch), so they
+  // render immediately; the debounced KB search fills in below.
+  kbSelectedIndex.value = 0
   kbVisible.value = true
   scheduleKbSearch(word)
 }
@@ -490,6 +558,26 @@ const onKbArticlePicked = async (article) => {
   } finally {
     kbSending.value = false
   }
+}
+
+// Dispatcher: routes a pick from the unified list to the right pipeline
+// based on the item type.
+const onSuggestionPicked = (item) => {
+  if (!item) return
+  if (item.type === 'canned') {
+    onCannedPicked(item)
+  } else {
+    onKbArticlePicked(item)
+  }
+}
+
+// Canned responses are inserted into the draft (not auto-sent) via the
+// same `COPILOT_INSERT_REPLY` event the canned responses sidebar uses,
+// so the agent can review / tweak the text before sending.
+const onCannedPicked = (item) => {
+  closeKbPopup()
+  if (!item.content) return
+  kbEmitter.emit(EMITTER_EVENTS.COPILOT_INSERT_REPLY, item.content)
 }
 
 // To preseve the table styling in emails, need to set the table style inline.
@@ -622,15 +710,15 @@ const editor = useEditor({
       // ProseMirror plugin so a visible popup can claim ArrowUp/Down,
       // Enter, and Escape without the editor creating a new line or the
       // mention extension reacting first.
-      if (kbVisible.value && kbArticles.value.length > 0) {
+      if (kbVisible.value && allSuggestions.value.length > 0) {
         if (event.key === 'ArrowUp') {
           kbSelectedIndex.value =
-            (kbSelectedIndex.value - 1 + kbArticles.value.length) % kbArticles.value.length
+            (kbSelectedIndex.value - 1 + allSuggestions.value.length) % allSuggestions.value.length
           event.preventDefault()
           return true
         }
         if (event.key === 'ArrowDown') {
-          kbSelectedIndex.value = (kbSelectedIndex.value + 1) % kbArticles.value.length
+          kbSelectedIndex.value = (kbSelectedIndex.value + 1) % allSuggestions.value.length
           event.preventDefault()
           return true
         }
@@ -638,10 +726,10 @@ const editor = useEditor({
         // an Enter mid-IME-composition confirms the candidate, not a new
         // line, so let both pass through to the editor.
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-          const picked = kbArticles.value[kbSelectedIndex.value]
+          const picked = allSuggestions.value[kbSelectedIndex.value]
           if (picked) {
             event.preventDefault()
-            onKbArticlePicked(picked)
+            onSuggestionPicked(picked)
           }
           return true
         }
@@ -772,6 +860,10 @@ const onScrollOrResize = () => {
 onMounted(() => {
   window.addEventListener('resize', onScrollOrResize, { passive: true })
   window.addEventListener('scroll', onScrollOrResize, { passive: true })
+  // Warm the canned responses cache so the first keyword match renders
+  // instantly. The store no-ops when already loaded (e.g. the canned
+  // responses sidebar fetched it first).
+  cannedStore.fetch()
   // Also catch scroll inside the editor's own scroll container.
   nextTick(() => {
     const dom = editor.value?.view?.dom

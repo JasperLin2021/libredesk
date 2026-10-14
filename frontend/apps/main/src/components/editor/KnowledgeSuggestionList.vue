@@ -4,45 +4,101 @@
     role="listbox"
     :aria-label="$t('globals.terms.reply')"
   >
-    <div v-if="loading" class="px-3 py-3 text-xs text-muted-foreground flex items-center gap-2">
+    <div v-if="loading && items.length === 0" class="px-3 py-3 text-xs text-muted-foreground flex items-center gap-2">
       <Loader2 class="h-3.5 w-3.5 animate-spin" />
       {{ $t('globals.messages.loading') }}
     </div>
     <div v-else class="kb-suggestion-scroll overflow-y-auto">
-      <button
-        v-for="(item, index) in items"
-        :key="item.id"
-        type="button"
-        role="option"
-        :aria-selected="index === selectedIndex"
-        class="kb-suggestion-item w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-muted border-b border-border/40 last:border-b-0"
-        :class="{ 'bg-muted': index === selectedIndex }"
-        @mousedown.prevent
-        @click="$emit('select', item)"
-        @mouseenter="$emit('hover', index)"
-      >
-        <span class="text-sm font-medium truncate">
-          <span
-            v-for="(seg, i) in highlightSegments(item.title)"
-            :key="`t-${item.id}-${i}`"
-          >
-            <mark v-if="seg.match" class="kb-hit">{{ seg.text }}</mark>
-            <template v-else>{{ seg.text }}</template>
-          </span>
-        </span>
-        <span
-          v-if="item.summary"
-          class="text-xs text-muted-foreground line-clamp-2"
+      <!-- Canned responses group -->
+      <template v-if="cannedItems.length">
+        <div class="px-3 pt-2 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+          {{ $t('editor.suggestions.cannedSection') }}
+        </div>
+        <button
+          v-for="(item, index) in cannedItems"
+          :key="item.key || `c-${index}`"
+          type="button"
+          role="option"
+          :aria-selected="index === selectedIndex"
+          class="kb-suggestion-item w-full px-3 py-2 flex items-start gap-3 hover:bg-muted border-b border-border/40"
+          :class="{ 'bg-muted': index === selectedIndex }"
+          @mousedown.prevent
+          @click="$emit('select', item)"
+          @mouseenter="$emit('hover', index)"
         >
           <span
-            v-for="(seg, i) in highlightSegments(item.summary)"
-            :key="`s-${item.id}-${i}`"
+            v-if="item.badge"
+            class="kb-suggestion-badge shrink-0 mt-0.5 max-w-[6rem] truncate"
+            :title="item.badge"
           >
-            <mark v-if="seg.match" class="kb-hit">{{ seg.text }}</mark>
-            <template v-else>{{ seg.text }}</template>
+            {{ item.badge }}
           </span>
-        </span>
-      </button>
+          <span class="text-sm text-foreground line-clamp-2 flex-1 min-w-0 whitespace-pre-line">
+            <span
+              v-for="(seg, i) in highlightSegments(item.content)"
+              :key="`c-${item.key}-${i}`"
+            >
+              <mark v-if="seg.match" class="kb-hit">{{ seg.text }}</mark>
+              <template v-else>{{ seg.text }}</template>
+            </span>
+          </span>
+        </button>
+      </template>
+
+      <!-- Knowledge base group. Indices continue after the canned group so
+           the shared `selectedIndex` spans the whole flattened list. -->
+      <template v-if="kbItems.length">
+        <div
+          class="px-3 pt-2 pb-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide"
+          :class="{ 'mt-1': cannedItems.length }"
+        >
+          {{ $t('editor.suggestions.kbSection') }}
+        </div>
+        <button
+          v-for="(item, index) in kbItems"
+          :key="item.id || `k-${index}`"
+          type="button"
+          role="option"
+          :aria-selected="cannedItems.length + index === selectedIndex"
+          class="kb-suggestion-item w-full text-left px-3 py-2 flex flex-col gap-0.5 hover:bg-muted border-b border-border/40 last:border-b-0"
+          :class="{ 'bg-muted': cannedItems.length + index === selectedIndex }"
+          @mousedown.prevent
+          @click="$emit('select', item)"
+          @mouseenter="$emit('hover', cannedItems.length + index)"
+        >
+          <span class="text-sm font-medium truncate">
+            <span
+              v-for="(seg, i) in highlightSegments(item.title)"
+              :key="`t-${item.id}-${i}`"
+            >
+              <mark v-if="seg.match" class="kb-hit">{{ seg.text }}</mark>
+              <template v-else>{{ seg.text }}</template>
+            </span>
+          </span>
+          <span
+            v-if="item.summary"
+            class="text-xs text-muted-foreground line-clamp-2"
+          >
+            <span
+              v-for="(seg, i) in highlightSegments(item.summary)"
+              :key="`s-${item.id}-${i}`"
+            >
+              <mark v-if="seg.match" class="kb-hit">{{ seg.text }}</mark>
+              <template v-else>{{ seg.text }}</template>
+            </span>
+          </span>
+        </button>
+      </template>
+
+      <!-- Slim inline loading row shown while the KB search is in-flight
+           but canned matches are already visible above. -->
+      <div
+        v-if="loading && items.length > 0"
+        class="px-3 py-1.5 text-[11px] text-muted-foreground flex items-center gap-1.5 border-t border-border/40"
+      >
+        <Loader2 class="h-3 w-3 animate-spin" />
+        {{ $t('globals.messages.loading') }}
+      </div>
     </div>
   </div>
 </template>
@@ -52,6 +108,10 @@ import { computed } from 'vue'
 import { Loader2 } from 'lucide-vue-next'
 
 const props = defineProps({
+  // Unified suggestion items. `type: 'canned'` rows render `content` plus an
+  // optional `badge` (置顶 / 个人 / category); `type: 'kb'` rows render
+  // `title` + `summary`. Order is canned-first, kb-second, and
+  // `selectedIndex` refers to that flattened order.
   items: {
     type: Array,
     default: () => []
@@ -71,6 +131,9 @@ const props = defineProps({
 })
 
 defineEmits(['select', 'hover'])
+
+const cannedItems = computed(() => props.items.filter((i) => i.type === 'canned'))
+const kbItems = computed(() => props.items.filter((i) => i.type !== 'canned'))
 
 // Pre-compute the regex once per query change. The `g` flag enables
 // repeated matching for splitting, and `i` keeps the highlight
@@ -132,5 +195,15 @@ const highlightSegments = (text) => {
   padding: 0 1px;
   border-radius: 2px;
   font-weight: 600;
+}
+/* Small source pill for canned response rows (置顶 / 个人 / 分类名). */
+.kb-suggestion-badge {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
 }
 </style>
