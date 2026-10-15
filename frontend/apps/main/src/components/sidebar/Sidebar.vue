@@ -63,7 +63,8 @@ import {
   MessageSquareText,
   BookOpen,
   LibraryBig,
-  History
+  History,
+  Headset
 } from 'lucide-vue-next'
 
 const navIconMap = {
@@ -98,7 +99,8 @@ const navIconMap = {
   BookOpen,
   LibraryBig,
   History,
-  Search
+  Search,
+  Headset
 }
 import {
   DropdownMenu,
@@ -138,7 +140,16 @@ const { t } = useI18n()
 const emit = defineEmits(['createView', 'editView', 'deleteView', 'createConversation'])
 
 const isActiveParent = (parentHref) => {
+  if (!parentHref) return false
   return route.path.startsWith(parentHref)
+}
+
+// Returns true when the item itself (via href) or any of its descendants is active.
+const isActiveGroup = (item) => {
+  if (!item) return false
+  if (item.href && isActiveParent(item.href)) return true
+  if (!item.children) return false
+  return item.children.some((child) => isActiveGroup(child))
 }
 
 const isInboxRoute = (path) => {
@@ -250,10 +261,7 @@ watch(
 watch(
   [() => route.path, filteredHistoryNavItems],
   () => {
-    const activeItem = filteredHistoryNavItems.value.find((item) => {
-      if (!item.children) return false
-      return item.children.some((child) => isActiveParent(child.href))
-    })
+    const activeItem = filteredHistoryNavItems.value.find((item) => isActiveGroup(item))
     if (activeItem) {
       openHistoryCollapsible.value = activeItem.titleKey
     }

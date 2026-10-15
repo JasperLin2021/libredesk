@@ -65,8 +65,14 @@ const routes = [
       {
         path: '/history',
         name: 'history',
-        redirect: '/history/search',
+        redirect: '/history/conversations',
         children: [
+          {
+            path: 'conversations',
+            name: 'history-conversations',
+            component: () => import('@main/views/history/HistoryConversationsView.vue'),
+            meta: { titleKey: 'history.conversationRecords', hidePageHeader: true }
+          },
           {
             path: 'search',
             name: 'history-search',

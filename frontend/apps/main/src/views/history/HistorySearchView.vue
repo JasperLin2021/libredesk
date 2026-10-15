@@ -15,7 +15,7 @@
         @toggle-filters="toggleFilters"
       />
 
-      <div class="flex min-h-0 flex-1 gap-0 overflow-hidden">
+      <div ref="rowRef" class="flex min-h-0 flex-1 gap-0 overflow-hidden">
         <div class="flex min-w-0 flex-1 flex-col overflow-y-auto pr-3">
           <SearchHistoryList
             v-if="!searchPerformed"
@@ -55,11 +55,17 @@
         <!-- Draggable splitter: only shown when the right column is open. -->
         <div
           v-if="selectedConversationUuid || filtersOpen"
-          class="history-splitter flex w-1.5 shrink-0 cursor-col-resize items-center justify-center"
+          class="history-splitter flex w-1.5 shrink-0 cursor-col-resize items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           role="separator"
-          :aria-valuenow="rightWidth"
+          tabindex="0"
           aria-orientation="vertical"
+          :aria-label="$t('history.filter.resize')"
+          :aria-valuemin="RIGHT_WIDTH_MIN"
+          :aria-valuemax="maxRightWidth"
+          :aria-valuenow="rightWidth"
           @mousedown="onSplitterPointerDown"
+          @keydown.left.prevent="nudgeSplitter(24)"
+          @keydown.right.prevent="nudgeSplitter(-24)"
         >
           <span class="block h-8 w-0.5 rounded-full bg-border transition-colors group-hover:bg-primary" />
         </div>
@@ -216,6 +222,34 @@ function toggleFilters () {
 }
 
 // ── Resizable splitter ──────────────────────────────────────────────
+// The results column keeps at least this much room, so the right column can
+// grow without swallowing it entirely.
+const LIST_MIN_WIDTH = 360
+
+// The row holding the results, the splitter and the right column.
+const rowRef = ref(null)
+
+/**
+ * Maximum width the right column can reach right now, given the current row
+ * width. There is no fixed cap (it used to be 960px) — the only ceiling is
+ * the available row width minus LIST_MIN_WIDTH, so the user can always drag
+ * the right column wider.
+ */
+const maxRightWidth = computed(() => {
+  const rowWidth = rowRef.value?.getBoundingClientRect().width || 0
+  if (rowWidth <= 0) return RIGHT_WIDTH_MAX
+  return Math.max(RIGHT_WIDTH_MIN, rowWidth - LIST_MIN_WIDTH)
+})
+
+/**
+ * Clamps a requested width of the right column to the valid range, so the
+ * column never gets smaller than the usable minimum and never squeezes the
+ * results column below LIST_MIN_WIDTH.
+ */
+function clampRightWidth (width) {
+  return Math.min(maxRightWidth.value, Math.max(RIGHT_WIDTH_MIN, Math.round(width)))
+}
+
 let dragging = false
 let dragStartX = 0
 let dragStartWidth = RIGHT_WIDTH_DEFAULT
@@ -232,13 +266,14 @@ const onSplitterPointerDown = (e) => {
 
 const onSplitterPointerMove = (e) => {
   if (!dragging) return
-  // Splitter sits on the right edge of the right column; dragging right grows it.
-  const delta = e.clientX - dragStartX
-  const next = Math.min(
-    RIGHT_WIDTH_MAX,
-    Math.max(RIGHT_WIDTH_MIN, dragStartWidth + delta)
-  )
-  rightWidth.value = next
+  // The splitter is the LEFT edge of the right column, so the column width is
+  // measured from the right edge of the row. Solving width = rowRight - clientX
+  // keeps the splitter exactly under the cursor: dragging it to the LEFT widens
+  // the right column, dragging it to the RIGHT narrows it.
+  const rowRight = rowRef.value?.getBoundingClientRect().right
+  rightWidth.value = rowRight
+    ? clampRightWidth(rowRight - e.clientX)
+    : clampRightWidth(dragStartWidth - (e.clientX - dragStartX))
 }
 
 const onSplitterPointerUp = () => {
@@ -294,16 +329,27 @@ watch(searchQuery, (next) => {
   error.value = null
 })
 
+// Keyboard equivalent of the mouse drag so the column is resizable without a pointer.
+const nudgeSplitter = (delta) => {
+  rightWidth.value = clampRightWidth(rightWidth.value + delta)
+}
+
+// Keep the right column within bounds when the viewport changes.
+const onWindowResize = () => {
+  rightWidth.value = clampRightWidth(rightWidth.value)
+}
+
 onMounted(() => {
-  // Clamp the initial width on smaller viewports so the splitter stays usable.
-  if (typeof window !== 'undefined') {
-    const max = Math.floor(window.innerWidth * 0.7)
-    rightWidth.value = Math.min(RIGHT_WIDTH_MAX, Math.max(RIGHT_WIDTH_MIN, max))
-  }
+  // Start at a fraction of the available width so the column can actually be
+  // dragged wider instead of starting pinned at its maximum.
+  const rowWidth = rowRef.value?.getBoundingClientRect().width || window.innerWidth
+  rightWidth.value = clampRightWidth(rowWidth * 0.45)
+  window.addEventListener('resize', onWindowResize)
 })
 
 onBeforeUnmount(() => {
   onSplitterPointerUp()
+  window.removeEventListener('resize', onWindowResize)
 })
 </script>
 

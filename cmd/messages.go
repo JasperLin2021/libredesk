@@ -47,6 +47,11 @@ func handleGetMessages(r *fastglue.Request) error {
 		msgTypes = append(msgTypes, string(v))
 	}
 
+	// Optional upper bound: return the messages up to AND including this message
+	// uuid. Used by the service history to render only the transcript that
+	// belongs to a close record ("up to the conversation closed message").
+	until := strings.TrimSpace(string(r.RequestCtx.QueryArgs().Peek("until")))
+
 	user, err := app.user.GetAgentCachedOrLoad(auser.ID)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
@@ -58,7 +63,7 @@ func handleGetMessages(r *fastglue.Request) error {
 		return sendErrorEnvelope(r, err)
 	}
 
-	messages, pageSize, err := app.conversation.GetConversationMessages(uuid, page, pageSize, private, msgTypes)
+	messages, pageSize, err := app.conversation.GetConversationMessages(uuid, page, pageSize, private, msgTypes, until)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}

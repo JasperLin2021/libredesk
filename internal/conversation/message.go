@@ -324,7 +324,11 @@ func (m *Manager) RenderMessageInTemplate(channel string, message *models.Messag
 }
 
 // GetConversationMessages retrieves messages for a specific conversation.
-func (m *Manager) GetConversationMessages(conversationUUID string, page, pageSize int, private *bool, msgTypes []string) ([]models.Message, int, error) {
+// untilMessageUUID optionally bounds the result to the messages up to and
+// including that message, which the service history uses to render the
+// transcript of a close record (it must end with the "conversation closed"
+// activity message).
+func (m *Manager) GetConversationMessages(conversationUUID string, page, pageSize int, private *bool, msgTypes []string, untilMessageUUID string) ([]models.Message, int, error) {
 	var (
 		messages = make([]models.Message, 0)
 		qArgs    []any
@@ -336,7 +340,12 @@ func (m *Manager) GetConversationMessages(conversationUUID string, page, pageSiz
 		typesArg = pq.StringArray(msgTypes)
 	}
 
-	qArgs = append(qArgs, conversationUUID, private, typesArg)
+	var untilArg any
+	if until := strings.TrimSpace(untilMessageUUID); until != "" {
+		untilArg = until
+	}
+
+	qArgs = append(qArgs, conversationUUID, private, typesArg, untilArg)
 	query, pageSize, qArgs, err := m.generateMessagesQuery(m.q.GetMessages, qArgs, page, pageSize)
 	if err != nil {
 		m.lo.Error("error generating messages query", "error", err)
@@ -368,7 +377,7 @@ func (m *Manager) GetAllConversationMessages(conversationUUID string, private *b
 		pageSize = limit
 	}
 	for page := 1; ; page++ {
-		messages, _, err := m.GetConversationMessages(conversationUUID, page, pageSize, private, msgTypes)
+		messages, _, err := m.GetConversationMessages(conversationUUID, page, pageSize, private, msgTypes, "")
 		if err != nil {
 			return nil, err
 		}

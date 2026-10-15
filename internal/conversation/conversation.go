@@ -444,6 +444,7 @@ type queries struct {
 	GetConversationsCreatedAfter        *sqlx.Stmt `query:"get-conversations-created-after"`
 	GetUnassignedConversations          *sqlx.Stmt `query:"get-unassigned-conversations"`
 	GetConversations                    string     `query:"get-conversations"`
+	GetHistoryConversations             string     `query:"get-history-conversations"`
 	GetContactChatConversations         *sqlx.Stmt `query:"get-contact-chat-conversations"`
 	GetChatConversation                 *sqlx.Stmt `query:"get-chat-conversation"`
 	GetContactPreviousConversations     *sqlx.Stmt `query:"get-contact-previous-conversations"`
@@ -745,6 +746,96 @@ func (c *Manager) GetConversationUUID(id int) (string, error) {
 		return uuid, err
 	}
 	return uuid, nil
+}
+
+// HistoryConversationsFilter holds the optional filters of the service history list.
+// Every returned record is a conversation close event. Start / End bound the
+// selected TimeDimension and VisitorID matches the contact external id exactly.
+type HistoryConversationsFilter struct {
+	Start     *time.Time
+	End       *time.Time
+	VisitorID string
+	Order     string
+	// TimeDimension selects the timestamp the range and the ordering apply to:
+	// "first_reply" (conversation pick up time, the default) or "closed"
+	// (the close event time).
+	TimeDimension string
+	Page          int
+	PageSize      int
+}
+
+// GetHistoryConversations retrieves the service history conversation list, one
+// record per conversation close event. Visibility follows the same permission
+// rules as the conversation list and search endpoints, so agents only see the
+// conversations they may read.
+func (c *Manager) GetHistoryConversations(agentID int, f HistoryConversationsFilter) ([]models.HistoryConversationItem, error) {
+	var conversations = make([]models.HistoryConversationItem, 0)
+
+	user, err := c.userStore.GetAgentCachedOrLoad(agentID)
+	if err != nil {
+		c.lo.Error("error fetching agent for history conversations", "agent_id", agentID, "error", err)
+		return conversations, err
+	}
+	// Disabled agents are not allowed to read any conversation.
+	if !user.Enabled {
+		return conversations, nil
+	}
+
+	page, pageSize := f.Page, f.PageSize
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 30
+	}
+	if pageSize > conversationsListMaxPageSize {
+		pageSize = conversationsListMaxPageSize
+	}
+
+	// The close event time is the natural timestamp of a record; the pick up time
+	// of the conversation is the default dimension of the filter panel.
+	timeDimension := "first_reply"
+	tieBreaker := "c.created_at"
+	if strings.EqualFold(f.TimeDimension, "closed") {
+		timeDimension = "closed"
+		tieBreaker = "cm.created_at"
+	}
+
+	// Rows without a timestamp sort last in both directions.
+	orderClause := fmt.Sprintf("DESC NULLS LAST, %s DESC", tieBreaker)
+	if strings.EqualFold(f.Order, "asc") {
+		orderClause = fmt.Sprintf("ASC NULLS LAST, %s ASC", tieBreaker)
+	}
+	query := fmt.Sprintf(c.q.GetHistoryConversations, orderClause)
+
+	var visitorID any
+	if v := strings.TrimSpace(f.VisitorID); v != "" {
+		visitorID = v
+	}
+
+	err = c.db.SelectContext(context.Background(), &conversations, query,
+		user.ID,
+		pq.Array(user.Teams.IDs()),
+		slices.Contains(user.Permissions, authzmodels.PermConversationsRead),
+		slices.Contains(user.Permissions, authzmodels.PermConversationsReadAll),
+		slices.Contains(user.Permissions, authzmodels.PermConversationsReadAssigned),
+		slices.Contains(user.Permissions, authzmodels.PermConversationsReadTeamAll),
+		slices.Contains(user.Permissions, authzmodels.PermConversationsReadTeamInbox),
+		slices.Contains(user.Permissions, authzmodels.PermConversationsReadUnassigned),
+		f.Start,
+		f.End,
+		visitorID,
+		pageSize,
+		(page-1)*pageSize,
+		models.StatusClosed,
+		timeDimension,
+	)
+	if err != nil {
+		c.lo.Error("error fetching history conversations", "agent_id", agentID, "error", err)
+		return conversations, envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+
+	return conversations, nil
 }
 
 // GetAllConversationsList retrieves all conversations with optional filtering, ordering, and pagination.
@@ -2246,7 +2337,7 @@ func (m *Manager) BuildWidgetConversationResponse(conversation models.Conversati
 	if includeMessages {
 		private := false
 		// Fetch last 400 messages.
-		messages, _, err := m.GetConversationMessages(conversation.UUID, 1, 400, &private, []string{models.MessageIncoming, models.MessageOutgoing})
+		messages, _, err := m.GetConversationMessages(conversation.UUID, 1, 400, &private, []string{models.MessageIncoming, models.MessageOutgoing}, "")
 		if err != nil {
 			m.lo.Error("error fetching conversation messages", "conversation_uuid", conversation.UUID, "error", err)
 			return resp, envelope.NewError(envelope.GeneralError, "Error fetching messages", nil)

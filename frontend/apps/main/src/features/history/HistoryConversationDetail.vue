@@ -23,7 +23,7 @@
 
     <Spinner v-if="loading" class="m-auto" />
 
-    <p v-else-if="error" class="m-auto text-center text-sm text-destructive">
+    <p v-else-if="error" role="alert" class="m-auto text-center text-sm text-destructive">
       {{ error }}
     </p>
 
@@ -47,23 +47,50 @@
           <div class="flex justify-center">
             <span class="text-[11px] text-muted-foreground">{{ formatTime(msg.created_at) }}</span>
           </div>
-          <div
-            class="flex"
-            :class="msg.sender_type === 'contact' ? 'justify-start' : 'justify-end'"
-          >
+
+          <!-- Closing line: the "conversation closed" message ends the record. -->
+          <div v-if="msg.uuid === untilUuid" class="flex justify-center px-2">
+            <span
+              class="rounded-full border border-border bg-muted px-3 py-1 text-center text-[11px] text-muted-foreground"
+            >
+              {{ closingText(msg) }}
+            </span>
+          </div>
+
+          <div v-else class="flex" :class="msg.sender_type === 'contact' ? 'justify-start' : 'justify-end'">
             <div class="max-w-[85%]">
               <div class="mb-1 text-[11px] text-muted-foreground">
                 {{ senderName(msg) }}
               </div>
               <div
-                class="native-html whitespace-pre-wrap rounded-lg px-3 py-2 text-sm"
+                class="native-html rounded-lg px-3 py-2 text-sm"
                 :class="
                   msg.sender_type === 'contact'
                     ? 'bg-muted text-foreground'
                     : 'bg-primary text-primary-foreground'
                 "
               >
-                {{ plainContent(msg) }}
+                <div class="whitespace-pre-wrap">{{ plainContent(msg) }}</div>
+                <!-- Quick-reply topic/question cards (主题与问题), rendered inside the same bubble. -->
+                <div
+                  v-if="msg.meta?.type === 'bot_quick_reply' && Array.isArray(msg.meta?.items) && msg.meta.items.length"
+                  class="mt-2 flex flex-col items-start gap-2"
+                >
+                  <span
+                    v-for="(item, idx) in msg.meta.items"
+                    :key="idx"
+                    class="w-full rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-600"
+                  >
+                    {{ item.label }}
+                  </span>
+                  <span
+                    v-if="msg.meta.transfer_keyword"
+                    class="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-600"
+                  >
+                    <Headset class="h-4 w-4" />
+                    {{ msg.meta.transfer_keyword }}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -103,6 +130,30 @@
               {{ userId || $t('conversation.sidebar.notAvailable') }}
             </dd>
           </div>
+          <div v-if="lastAgentLabel">
+            <dt class="text-xs text-muted-foreground">{{ $t('history.detail.lastAgent') }}</dt>
+            <dd class="truncate text-foreground" :title="lastAgentLabel">
+              {{ lastAgentLabel }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs text-muted-foreground">{{ $t('history.detail.pickedUpAt') }}</dt>
+            <dd class="text-foreground">
+              {{ pickedUpAtLabel }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs text-muted-foreground">{{ $t('history.detail.closedAt') }}</dt>
+            <dd class="text-foreground">
+              {{ closedAtLabel }}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs text-muted-foreground">{{ $t('history.detail.closedBy') }}</dt>
+            <dd class="truncate text-foreground" :title="closedByLabel">
+              {{ closedByLabel }}
+            </dd>
+          </div>
           <div>
             <dt class="text-xs text-muted-foreground">{{ $t('globals.terms.createdAt') }}</dt>
             <dd class="text-foreground">
@@ -117,17 +168,23 @@
 
 <script setup>
 import { computed, ref, watch, nextTick } from 'vue'
-import { X } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
+import { X, Headset } from 'lucide-vue-next'
 import { parseISO, format } from 'date-fns'
 import api from '@main/api'
 import { Avatar, AvatarImage, AvatarFallback } from '@shared-ui/components/ui/avatar'
 import { Spinner } from '@shared-ui/components/ui/spinner'
+
+const { t } = useI18n()
 
 // How many pages (of PAGE_SIZE messages each) we'll walk through when looking
 // for the highlight target. Caps the worst-case load when a search match
 // happens to be very old in a long conversation.
 const MAX_PAGES = 20
 const PAGE_SIZE = 50
+// Cap for the transcript of a service history record (a close event), where we
+// page back until the whole transcript up to the closing message is loaded.
+const RECORD_MAX_PAGES = 10
 
 const props = defineProps({
   conversationUuid: {
@@ -145,6 +202,32 @@ const props = defineProps({
   matchItem: {
     type: Object,
     default: null
+  },
+  // Optional metadata coming from the service history ("会话记录") list row.
+  // The conversation payload only carries the assignee id, so the pick up time
+  // and the last agent name are passed in from the list to avoid an extra call.
+  pickedUpAt: {
+    type: String,
+    default: ''
+  },
+  lastAgent: {
+    type: String,
+    default: ''
+  },
+  // uuid of the "conversation closed" activity message of the service history
+  // record. It bounds the transcript: only the messages up to and including it
+  // are requested, so the closing message is always the last entry.
+  untilUuid: {
+    type: String,
+    default: ''
+  },
+  closedAt: {
+    type: String,
+    default: ''
+  },
+  closedBy: {
+    type: String,
+    default: ''
   }
 })
 defineEmits(['close'])
@@ -211,6 +294,33 @@ const formatTime = (value) => {
     return value
   }
 }
+
+const formatDateTime = (value) => {
+  if (!value) return ''
+  try {
+    return format(parseISO(value), 'yyyy-MM-dd HH:mm:ss')
+  } catch (err) {
+    return value
+  }
+}
+
+// Prefer the value handed over by the list row (instant paint) and fall back to
+// the freshly loaded conversation payload.
+const pickedUpAtLabel = computed(() =>
+  formatDateTime(props.pickedUpAt || conversation.value?.first_reply_at || '') || '-'
+)
+
+const lastAgentLabel = computed(() => (props.lastAgent || '').trim())
+
+// Close event metadata of the record, handed over by the service history row.
+const closedAtLabel = computed(() => formatDateTime(props.closedAt || '') || '-')
+
+const closedByLabel = computed(
+  () => (props.closedBy || '').trim() || t('conversation.sidebar.notAvailable')
+)
+
+// Localized text of the closing message, e.g. "Alice 将状态更改为 已关闭".
+const closingText = (msg) => plainContent(msg) || t('history.detail.conversationClosed')
 
 const normalizeText = (s) => String(s || '').replace(/\s+/g, ' ').trim()
 
@@ -327,6 +437,10 @@ const loadMessages = async () => {
   const targetUuid = props.highlightUuid || ''
   const needle = normalizeText(props.matchItem?.text_content)
   const hasTarget = !!targetUuid || !!needle
+  // A service history record ("会话记录") is bounded by its closing message and
+  // shows the whole transcript that belongs to that close event.
+  const until = props.untilUuid || ''
+  const maxPages = until ? RECORD_MAX_PAGES : MAX_PAGES
   const pageHasHit = (results) =>
     results.some((m) => {
       if (targetUuid && m.uuid === targetUuid) return true
@@ -337,10 +451,11 @@ const loadMessages = async () => {
       return false
     })
 
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  for (let page = 1; page <= maxPages; page++) {
     const resp = await api.getConversationMessages(props.conversationUuid, {
       page,
-      page_size: PAGE_SIZE
+      page_size: PAGE_SIZE,
+      until: until || undefined
     })
     const payload = resp?.data?.data || {}
     const pageResults = payload.results || []
@@ -352,16 +467,18 @@ const loadMessages = async () => {
     if (hasTarget) {
       if (pageHasHit(pageResults)) {
         // Pull the page after for context so the hit isn't isolated at the end.
-        if (page < MAX_PAGES) {
+        if (page < maxPages) {
           const next = await api.getConversationMessages(props.conversationUuid, {
             page: page + 1,
-            page_size: PAGE_SIZE
+            page_size: PAGE_SIZE,
+            until: until || undefined
           })
           collected.push(...((next?.data?.data?.results) || []))
         }
         break
       }
-    } else if (page === 1) {
+    } else if (!until) {
+      // Plain conversation preview: only the newest page is needed.
       break
     }
 
@@ -380,9 +497,26 @@ const fetchData = async () => {
     const convResp = await api.getConversation(props.conversationUuid)
     conversation.value = convResp?.data?.data || null
     const raw = await loadMessages()
-    messages.value = raw
-      .filter((m) => m.type !== 'activity')
-      .reverse()
+    // Activity messages stay out of the transcript, with one exception: the
+    // "conversation closed" message of the record, which is rendered as the
+    // closing line and must therefore be the last entry.
+    const closing = props.untilUuid
+      ? raw.find((m) => m.uuid === props.untilUuid)
+      : null
+    const transcript = raw.filter((m) => m.type !== 'activity').reverse()
+    if (closing) {
+      transcript.push(closing)
+    } else if (props.untilUuid) {
+      // Closing message not loaded (very long transcript or stale uuid): still
+      // mark the end of the record with a generic closing line.
+      transcript.push({
+        uuid: props.untilUuid,
+        type: 'activity',
+        content: '',
+        created_at: props.closedAt
+      })
+    }
+    messages.value = transcript
   } catch (err) {
     error.value = err?.response?.data?.message || err?.message || 'Failed to load conversation'
   } finally {
@@ -401,11 +535,11 @@ const fetchData = async () => {
   }
 }
 
-// Identifies the current target: conversation uuid + preferred message
-// (uuid when available, otherwise the search hit's text content).
+// Identifies the current target: conversation uuid + the close record (if any) +
+// the preferred message (uuid when available, otherwise the search hit's text).
 const targetKey = computed(
   () =>
-    `${props.conversationUuid}|${props.highlightUuid || props.matchItem?.text_content || ''}`
+    `${props.conversationUuid}|${props.untilUuid || ''}|${props.highlightUuid || props.matchItem?.text_content || ''}`
 )
 
 watch(

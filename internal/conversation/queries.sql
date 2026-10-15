@@ -121,6 +121,87 @@ SELECT
     ) nxt_resp_event ON true
 WHERE 1=1 %s
 
+-- name: get-history-conversations
+-- Service history ("会话记录") list: ONE ROW PER CONVERSATION CLOSE EVENT.
+-- Every time a conversation is set to "Closed" an activity message is recorded
+-- (see insert-conversation-activity paths in message.go), so a conversation that
+-- was re-opened and closed again shows up once per close. The activity message
+-- uuid identifies the record (closure_uuid) and bounds its transcript: the
+-- messages shown for a record end with that close message.
+-- Visibility mirrors filter-authorized-list-uuids so agents only ever see
+-- conversations they are allowed to read.
+-- $1: user_id
+-- $2: team_ids (int[])
+-- $3: has 'conversations:read'
+-- $4: has 'conversations:read_all'
+-- $5: has 'conversations:read_assigned'
+-- $6: has 'conversations:read_team_all'
+-- $7: has 'conversations:read_team_inbox'
+-- $8: has 'conversations:read_unassigned'
+-- $9: time range start (timestamptz, nullable)
+-- $10: time range end (timestamptz, nullable)
+-- $11: visitor external id (text, nullable)
+-- $12: limit
+-- $13: offset
+-- $14: closed status name (e.g. 'Closed')
+-- $15: time dimension the range and the ordering apply to: 'closed' | 'first_reply'
+SELECT
+    COUNT(*) OVER() as total,
+    cm.uuid AS closure_uuid,
+    cm.created_at AS closed_at,
+    cm.content AS closure_content,
+    c.uuid,
+    c.reference_number,
+    c.created_at,
+    c.first_reply_at,
+    c.assigned_user_id,
+    ct.first_name as "contact.first_name",
+    ct.last_name as "contact.last_name",
+    ct.email as "contact.email",
+    ct.avatar_url as "contact.avatar_url",
+    ct.type as "contact.type",
+    ct.external_user_id as "contact.external_user_id",
+    i.name as inbox_name,
+    i.channel as inbox_channel,
+    NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(closer.first_name, ''), NULLIF(closer.last_name, ''))), '') as closed_by_name,
+    COALESCE(
+        last_agent.name,
+        NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(assigned.first_name, ''), NULLIF(assigned.last_name, ''))), '')
+    ) as assigned_user_name
+FROM conversation_messages cm
+JOIN conversations c ON c.id = cm.conversation_id
+JOIN users ct ON c.contact_id = ct.id
+JOIN inboxes i ON c.inbox_id = i.id
+LEFT JOIN users closer ON cm.sender_id = closer.id
+LEFT JOIN users assigned ON c.assigned_user_id = assigned.id
+LEFT JOIN LATERAL (
+    -- Agent (or AI assistant) who sent the last reply before this close event.
+    SELECT NULLIF(BTRIM(CONCAT_WS(' ', NULLIF(replier.first_name, ''), NULLIF(replier.last_name, ''))), '') AS name
+    FROM conversation_messages reply
+    JOIN users replier ON reply.sender_id = replier.id
+    WHERE reply.conversation_id = c.id
+      AND reply.id < cm.id
+      AND reply.type = 'outgoing'
+    ORDER BY reply.id DESC
+    LIMIT 1
+) last_agent ON true
+WHERE cm.type = 'activity'
+  AND cm.meta->>'activity_type' = 'status_change'
+  AND cm.meta->>'new_value' = $14::text
+  AND $3
+  AND (
+       $4
+    OR ($5 AND c.assigned_user_id = $1)
+    OR ($6 AND c.assigned_team_id = ANY($2::int[]))
+    OR ($7 AND c.assigned_team_id = ANY($2::int[]) AND c.assigned_user_id IS NULL)
+    OR ($8 AND c.assigned_user_id IS NULL AND c.assigned_team_id IS NULL)
+  )
+  AND ($9::timestamptz IS NULL OR (CASE WHEN $15::text = 'closed' THEN cm.created_at ELSE c.first_reply_at END) >= $9)
+  AND ($10::timestamptz IS NULL OR (CASE WHEN $15::text = 'closed' THEN cm.created_at ELSE c.first_reply_at END) <= $10)
+  AND ($11::text IS NULL OR ct.external_user_id = $11)
+ORDER BY (CASE WHEN $15::text = 'closed' THEN cm.created_at ELSE c.first_reply_at END) %s
+LIMIT $12 OFFSET $13;
+
 -- name: get-conversation-list-item
 SELECT
     conversations.id,
@@ -793,6 +874,13 @@ GROUP BY
 ORDER BY m.created_at;
 
 -- name: get-messages
+-- $4 optionally bounds the result to the messages belonging to a single
+-- close event of a conversation, identified by the "conversation closed"
+-- activity message uuid. The lower bound is the previous "closed" activity
+-- in the same conversation (so a later close does not include messages
+-- from before the previous reopen) and the upper bound is the current
+-- closing activity plus the first outgoing message after it (so the
+-- configured "closed reply" auto-reply is included in the transcript).
 SELECT
    COUNT(*) OVER() AS total,
    m.id,
@@ -838,6 +926,46 @@ WHERE m.conversation_id = (
 )
 AND ($2::boolean IS NULL OR m.private = $2)
 AND ($3::text[] IS NULL OR m.type::text = ANY($3))
+AND ($4::uuid IS NULL OR m.id <= COALESCE(
+   (SELECT id FROM conversation_messages
+    WHERE conversation_id = m.conversation_id
+      AND id > (SELECT id FROM conversation_messages WHERE uuid = $4::uuid LIMIT 1)
+      AND type = 'outgoing'
+    ORDER BY id ASC
+    LIMIT 1),
+   (SELECT id FROM conversation_messages WHERE uuid = $4::uuid LIMIT 1)
+))
+-- Lower bound: when the conversation was closed before, exclude the entire
+-- previous close period – the previous "closed" activity AND its trailing
+-- "closed reply" auto-reply – so the current record only contains messages
+-- generated during the current open period. "Closed" must match the value
+-- stored by InsertConversationActivity and used by get-history-conversations.
+AND ($4::uuid IS NULL OR m.id > COALESCE(
+   (SELECT MIN(cm.id) FROM conversation_messages cm
+    WHERE cm.conversation_id = m.conversation_id
+      AND cm.type = 'outgoing'
+      -- Not wrapped in COALESCE: when there is no previous close, MAX() is
+      -- NULL and "id > NULL" matches nothing, so the outer MIN() yields NULL
+      -- and the fallback below kicks in (which is also 0) instead of
+      -- accidentally picking the conversation's very first outgoing message.
+      AND cm.id > (
+         SELECT MAX(id) FROM conversation_messages
+         WHERE conversation_id = m.conversation_id
+           AND type = 'activity'
+           AND meta->>'activity_type' = 'status_change'
+           AND meta->>'new_value' = 'Closed'
+           AND id < (SELECT id FROM conversation_messages WHERE uuid = $4::uuid LIMIT 1)
+      )),
+   COALESCE(
+      (SELECT MAX(id) FROM conversation_messages
+       WHERE conversation_id = m.conversation_id
+         AND type = 'activity'
+         AND meta->>'activity_type' = 'status_change'
+         AND meta->>'new_value' = 'Closed'
+         AND id < (SELECT id FROM conversation_messages WHERE uuid = $4::uuid LIMIT 1)),
+      0
+   )
+))
 AND (m.meta IS NULL OR NOT COALESCE((m.meta->>'continuity_email')::boolean, false))
 ORDER BY m.created_at DESC %s
 

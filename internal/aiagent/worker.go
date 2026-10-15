@@ -219,7 +219,7 @@ func (m *Manager) handle(ctx context.Context, convID int) {
 	}
 
 	private := false
-	msgs, _, err := m.convo.GetConversationMessages(conv.UUID, 1, m.maxHistoryMessages, &private, []string{cmodels.MessageIncoming, cmodels.MessageOutgoing})
+	msgs, _, err := m.convo.GetConversationMessages(conv.UUID, 1, m.maxHistoryMessages, &private, []string{cmodels.MessageIncoming, cmodels.MessageOutgoing}, "")
 	if err != nil {
 		m.lo.Error("error fetching messages for ai agent", "conversation_uuid", conv.UUID, "error", err)
 		return

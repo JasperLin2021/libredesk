@@ -87,6 +87,9 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.GET("/api/v1/messages/search", perm(handleSearchMessages, "messages:read"))
 	g.GET("/api/v1/contacts/search", perm(handleSearchContacts, "contacts:read"))
 
+	// Service history.
+	g.GET("/api/v1/history/conversations", perm(handleGetHistoryConversations, "conversations:read"))
+
 	// Views.
 	g.GET("/api/v1/views/me", perm(handleGetUserViews, "view:manage"))
 	g.POST("/api/v1/views/me", perm(handleCreateUserView, "view:manage"))

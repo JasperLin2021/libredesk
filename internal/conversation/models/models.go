@@ -174,6 +174,34 @@ type ConversationListContact struct {
 	Email     null.String `db:"email" json:"email"`
 	AvatarURL null.String `db:"avatar_url" json:"avatar_url"`
 	Type      string      `db:"type" json:"type"`
+	// ExternalUserID is the third party / channel identifier of the contact.
+	// It is only selected by the service history list, other list views leave it unset.
+	ExternalUserID null.String `db:"external_user_id" json:"external_user_id"`
+}
+
+// HistoryConversationItem represents a single conversation close event in the
+// service history view ("会话记录"). One row is emitted per time a conversation
+// was set to "Closed", so a conversation that was re-opened and closed again
+// shows up once per close event.
+type HistoryConversationItem struct {
+	Total int `db:"total" json:"-"`
+	// ClosureUUID is the uuid of the "conversation closed" activity message. It
+	// identifies the record and bounds its transcript: the messages shown for the
+	// record end with this close message. ClosureContent is that message's
+	// localized text (e.g. "Alice 将状态更改为 已关闭").
+	ClosureUUID      string                  `db:"closure_uuid" json:"closure_uuid"`
+	ClosureContent   string                  `db:"closure_content" json:"closure_content"`
+	ClosedAt         time.Time               `db:"closed_at" json:"closed_at"`
+	ClosedByName     null.String             `db:"closed_by_name" json:"closed_by_name"`
+	UUID             string                  `db:"uuid" json:"uuid"`
+	ReferenceNumber  string                  `db:"reference_number" json:"reference_number"`
+	CreatedAt        time.Time               `db:"created_at" json:"created_at"`
+	FirstReplyAt     null.Time               `db:"first_reply_at" json:"first_reply_at"`
+	InboxName        string                  `db:"inbox_name" json:"inbox_name"`
+	InboxChannel     string                  `db:"inbox_channel" json:"inbox_channel"`
+	AssignedUserID   null.Int                `db:"assigned_user_id" json:"assigned_user_id"`
+	AssignedUserName null.String             `db:"assigned_user_name" json:"assigned_user_name"`
+	Contact          ConversationListContact `db:"contact" json:"contact"`
 }
 
 type Conversation struct {

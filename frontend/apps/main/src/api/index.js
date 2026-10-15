@@ -70,6 +70,9 @@ const deleteCustomAttribute = (id) => http.delete(`/api/v1/custom-attributes/${i
 const searchConversations = (params) => http.get('/api/v1/conversations/search', { params })
 const searchMessages = (params) => http.get('/api/v1/messages/search', { params })
 const searchContacts = (params) => http.get('/api/v1/contacts/search', { params })
+// Service history ("会话记录") list, filtered by pick-up time range and visitor external id.
+const getHistoryConversations = (params) =>
+  http.get('/api/v1/history/conversations', { params, abortOnRoute: true })
 const getEmailNotificationSettings = () => http.get('/api/v1/settings/notifications/email')
 const updateEmailNotificationSettings = (data) =>
   http.put('/api/v1/settings/notifications/email', data)
@@ -912,6 +915,7 @@ export default {
   searchConversations,
   searchMessages,
   searchContacts,
+  getHistoryConversations,
   removeAssignee,
   getContacts,
   getContact,

@@ -264,9 +264,14 @@ export const contactNavItems = [
 
 export const historyNavItems = [
   {
-    titleKey: 'globals.terms.history',
-    icon: 'History',
+    titleKey: 'globals.terms.onlineService',
+    icon: 'Headset',
     children: [
+      {
+        titleKey: 'history.conversationRecords',
+        href: '/history/conversations',
+        icon: 'MessageSquareText'
+      },
       {
         titleKey: 'globals.terms.search',
         href: '/history/search',

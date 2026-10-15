@@ -41,13 +41,13 @@
                   <Tooltip>
                     <TooltipTrigger as-child>
                       <SidebarMenuButton asChild :isActive="route.path.startsWith('/history')">
-                        <router-link :to="{ name: 'history-search' }">
+                        <router-link :to="{ name: 'history-conversations' }">
                           <History />
                         </router-link>
                       </SidebarMenuButton>
                     </TooltipTrigger>
                     <TooltipContent side="right">
-                      <p>{{ t('globals.terms.history') }}</p>
+                      <p>{{ t('globals.terms.onlineService') }}</p>
                     </TooltipContent>
                   </Tooltip>
                 </SidebarMenuItem>

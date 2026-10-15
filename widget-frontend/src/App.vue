@@ -69,7 +69,7 @@ function handleServiceClick() {
   if (isAuthenticated.value) {
     isVisible.value ? hide() : show()
   } else {
-    bixiaoToken.value = 'ut:9e116f4a-8236-450d-a776-a17500dbc3e9'
+    bixiaoToken.value = 'ut:2dc5c91c-3d7c-48d0-87eb-d63e71b21da3'
     bixiaoDevice.value = 'Android'
     bixiaoVersionSeq.value = '202607015'
     bixiaoInbox.value = config.inboxID
