@@ -7,10 +7,12 @@ export const createFormSchema = (t) => z.object({
     description: z.string().nullable().optional().transform(v => v ?? ''),
     is_always_open: z.boolean(),
     hours: z.record(
-        z.object({
-            open: z.string().regex(timeRegex, t('validation.invalidTimeFormat')),
-            close: z.string().regex(timeRegex, t('validation.invalidTimeFormat')),
-        })
+        z.array(
+            z.object({
+                open: z.string().regex(timeRegex, t('validation.invalidTimeFormat')),
+                close: z.string().regex(timeRegex, t('validation.invalidTimeFormat')),
+            })
+        )
     ).optional()
 }).superRefine((data, ctx) => {
     if (data.is_always_open === false) {
@@ -22,11 +24,22 @@ export const createFormSchema = (t) => z.object({
             })
         } else {
             for (const day in data.hours) {
-                if (!data.hours[day].open || !data.hours[day].close) {
+                const ranges = data.hours[day]
+                if (!Array.isArray(ranges) || ranges.length === 0) {
                     ctx.addIssue({
                         code: z.ZodIssueCode.custom,
                         message: t('globals.messages.required'),
                         path: ['hours', day]
+                    })
+                } else {
+                    ranges.forEach((range, index) => {
+                        if (!range?.open || !range?.close) {
+                            ctx.addIssue({
+                                code: z.ZodIssueCode.custom,
+                                message: t('globals.messages.required'),
+                                path: ['hours', day, index]
+                            })
+                        }
                     })
                 }
             }

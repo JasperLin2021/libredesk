@@ -10,7 +10,7 @@
         >
           {{ header }}
         </th>
-        <th v-if="showDelete" scope="col" class="relative px-6 py-3"></th>
+        <th v-if="showEdit || showDelete" scope="col" class="relative px-6 py-3"></th>
       </tr>
     </thead>
     <tbody class="bg-background divide-y divide-border">
@@ -24,7 +24,7 @@
           >
             <Skeleton class="h-4 w-[85%]" />
           </td>
-          <td v-if="showDelete" class="px-6 py-4 text-sm text-muted-foreground">
+          <td v-if="showEdit || showDelete" class="px-6 py-4 text-sm text-muted-foreground">
             <Skeleton class="h-8 w-8 rounded-md" />
           </td>
         </tr>
@@ -55,10 +55,15 @@
           >
             {{ item[key] }}
           </td>
-          <td v-if="showDelete" class="px-6 py-4 text-sm text-muted-foreground">
-            <Button size="xs" variant="ghost" @click.prevent="deleteItem(item)">
-              <Trash2 class="h-4 w-4" />
-            </Button>
+          <td v-if="showEdit || showDelete" class="px-6 py-4 text-sm text-muted-foreground text-right">
+            <div class="flex items-center justify-end gap-1">
+              <Button v-if="showEdit" size="xs" variant="ghost" @click.prevent="editItem(item)">
+                <Pencil class="h-4 w-4" />
+              </Button>
+              <Button v-if="showDelete" size="xs" variant="ghost" @click.prevent="deleteItem(item)">
+                <Trash2 class="h-4 w-4" />
+              </Button>
+            </div>
           </td>
         </tr>
       </template>
@@ -67,7 +72,7 @@
 </template>
 
 <script setup>
-import { Trash2 } from 'lucide-vue-next'
+import { Trash2, Pencil } from 'lucide-vue-next'
 import { Button } from '@shared-ui/components/ui/button'
 import { Skeleton } from '@shared-ui/components/ui/skeleton'
 
@@ -87,6 +92,10 @@ defineProps({
     required: true,
     default: () => []
   },
+  showEdit: {
+    type: Boolean,
+    default: false
+  },
   showDelete: {
     type: Boolean,
     default: true
@@ -101,9 +110,13 @@ defineProps({
   }
 })
 
-const emit = defineEmits(['deleteItem'])
+const emit = defineEmits(['deleteItem', 'editItem'])
 
 function deleteItem(item) {
   emit('deleteItem', item)
+}
+
+function editItem(item) {
+  emit('editItem', item)
 }
 </script>

@@ -57,19 +57,32 @@ export function useBusinessHours () {
     }
 
     const dayName = getDayName(localDate.getDay())
-    const schedule = businessHours.hours[dayName]
+    const ranges = getDayRanges(businessHours, dayName)
 
-    if (!schedule || !schedule.open || !schedule.close) {
-      return false
-    }
-
-    // Check if open and close times are the same (closed day)
-    if (schedule.open === schedule.close) {
+    if (!ranges || ranges.length === 0) {
       return false
     }
 
     const currentTime = format(localDate, 'HH:mm')
-    return currentTime >= schedule.open && currentTime <= schedule.close
+    return ranges.some(
+      schedule =>
+        schedule.open &&
+        schedule.close &&
+        schedule.open !== schedule.close &&
+        currentTime >= schedule.open &&
+        currentTime <= schedule.close
+    )
+  }
+
+  // Returns the working time ranges of a day. Supports both the array format
+  // {"Monday": [{"open", "close"}, ...]} and the legacy single object format
+  // {"Monday": {"open", "close"}}.
+  function getDayRanges (businessHours, dayName) {
+    const schedule = businessHours?.hours?.[dayName]
+    if (!schedule) {
+      return []
+    }
+    return Array.isArray(schedule) ? schedule : [schedule]
   }
 
   function isHoliday (businessHours, date) {
@@ -77,7 +90,15 @@ export function useBusinessHours () {
       return false
     }
     const dateStr = format(date, 'yyyy-MM-dd')
-    return businessHours.holidays.some(holiday => holiday.date === dateStr)
+    return businessHours.holidays.some(holiday => {
+      // Support date ranges (start_date/end_date) and the legacy single "date".
+      const start = holiday.start_date || holiday.date
+      const end = holiday.end_date || holiday.start_date || holiday.date
+      if (!start) {
+        return false
+      }
+      return dateStr >= start && dateStr <= end
+    })
   }
 
   function getNextWorkingTime (businessHours, fromDate, utcOffset = 0) {
@@ -97,32 +118,42 @@ export function useBusinessHours () {
       }
 
       const dayName = getDayName(localDate.getDay())
-      const schedule = businessHours.hours[dayName]
+      const ranges = getDayRanges(businessHours, dayName)
+        .filter(schedule => schedule.open && schedule.close && schedule.open !== schedule.close)
+        .sort((a, b) => a.open.localeCompare(b.open))
 
-      if (!schedule || !schedule.open || !schedule.close || schedule.open === schedule.close) {
+      if (ranges.length === 0) {
         continue
       }
 
       // Parse opening time
-      const [openHour, openMinute] = schedule.open.split(':').map(Number)
-      let nextWorking = setMinutes(setHours(localDate, openHour), openMinute)
+      const toLocalDate = (schedule, timeStr) => {
+        const [hour, minute] = timeStr.split(':').map(Number)
+        return setMinutes(setHours(localDate, hour), minute)
+      }
 
       // Handle same-day logic
       if (i === 0) {
         const currentTime = format(localDate, 'HH:mm')
-        // Currently within business hours
-        if (currentTime >= schedule.open && currentTime < schedule.close) {
-          return new Date(localDate.getTime() - (adjustedOffset * 60000))
+        for (const schedule of ranges) {
+          // Past closing time of this range, try the next range of the day.
+          if (currentTime >= schedule.close) {
+            continue
+          }
+          // Currently within business hours.
+          if (currentTime >= schedule.open) {
+            return new Date(localDate.getTime() - (adjustedOffset * 60000))
+          }
+          // Before opening time of this range.
+          return new Date(toLocalDate(schedule, schedule.open).getTime() - (adjustedOffset * 60000))
         }
-        // Before opening time today
-        if (currentTime < schedule.open) {
-          return new Date(nextWorking.getTime() - (adjustedOffset * 60000))
-        }
-        // Past closing time, check next day
+        // Past all ranges today, check next day
         continue
       }
 
-      // For future days, return the opening time
+      // For future days, return the opening time of the first range
+      const schedule = ranges[0]
+      const nextWorking = toLocalDate(schedule, schedule.open)
       // Convert back from business timezone to user timezone
       return new Date(nextWorking.getTime() - (adjustedOffset * 60000))
     }

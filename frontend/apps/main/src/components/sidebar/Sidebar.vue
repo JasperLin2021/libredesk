@@ -239,10 +239,19 @@ const openAdminCollapsible = ref(null)
 const toggleAdminCollapsible = (titleKey) => {
   openAdminCollapsible.value = openAdminCollapsible.value === titleKey ? null : titleKey
 }
-// For auto opening history collapsibles when a child route is active
-const openHistoryCollapsible = ref(null)
+// For auto opening history collapsibles when a child route is active.
+// Multiple history groups (e.g. "在线客服" and "客户") must be able to stay
+// open at the same time – the previous single-ref design forced only one
+// group open at a time, so opening "在线客服" would automatically collapse
+// "客户" and vice versa. We use a Set to track every open group and only
+// remove a group when the user explicitly toggles it closed.
+const openHistoryCollapsibles = ref(new Set())
+const isHistoryGroupOpen = (titleKey) => openHistoryCollapsibles.value.has(titleKey)
 const toggleHistoryCollapsible = (titleKey) => {
-  openHistoryCollapsible.value = openHistoryCollapsible.value === titleKey ? null : titleKey
+  const next = new Set(openHistoryCollapsibles.value)
+  if (next.has(titleKey)) next.delete(titleKey)
+  else next.add(titleKey)
+  openHistoryCollapsibles.value = next
 }
 // Watch for route changes and update the active collapsible
 watch(
@@ -261,9 +270,14 @@ watch(
 watch(
   [() => route.path, filteredHistoryNavItems],
   () => {
+    // Auto-open the group that contains the active route, but never collapse
+    // groups the user has already opened – groups must be closed explicitly
+    // by toggling the trigger.
     const activeItem = filteredHistoryNavItems.value.find((item) => isActiveGroup(item))
-    if (activeItem) {
-      openHistoryCollapsible.value = activeItem.titleKey
+    if (activeItem && !openHistoryCollapsibles.value.has(activeItem.titleKey)) {
+      const next = new Set(openHistoryCollapsibles.value)
+      next.add(activeItem.titleKey)
+      openHistoryCollapsibles.value = next
     }
   },
   { immediate: true }
@@ -380,7 +394,7 @@ const viewToDelete = ref(null)
               <SidebarMenuItem v-for="item in filteredHistoryNavItems" :key="item.titleKey">
                 <Collapsible
                   class="group/collapsible"
-                  :open="openHistoryCollapsible === item.titleKey"
+                  :open="isHistoryGroupOpen(item.titleKey)"
                   @update:open="toggleHistoryCollapsible(item.titleKey)"
                 >
                   <CollapsibleTrigger as-child>

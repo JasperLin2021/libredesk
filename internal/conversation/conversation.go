@@ -2248,13 +2248,24 @@ func (c *Manager) makeConversationsListQuery(viewingUserID, userID int, teamIDs 
 	// conversations from registered contacts are surfaced in the agent UI.
 	whereClause += " AND users.type <> 'visitor'"
 
-	// Hide live-chat conversations until the visitor explicitly asks for a
-	// human agent. The frontend normally relies on WS push suppression +
-	// autoassigner filtering, but agents can also GET the list directly
-	// (or browser fetch on page load). This clause is the final backstop so
-	// "Open" / "Unassigned" / "All" tabs never surface a bot session before
-	// the visitor clicks "talk to a human".
-	whereClause += " AND COALESCE(conversations.meta->>'bot_human_requested', 'false') = 'true'"
+	// Hide live-chat conversations that are still in the "talking to the bot"
+	// phase. The visitor has not asked for a human yet, so the conversation
+	// must stay invisible to agents. We surface the conversation as soon as
+	// any of the following is true:
+	//   1. meta.bot_human_requested = true – the visitor clicked "talk to a
+	//      human" (livechat transfer path).
+	//   2. assigned_user_id IS NOT NULL – any reassign path (system
+	//      auto-claim, agent manual reassign, agent take-over after closing,
+	//      automation rules, etc.) means an agent is already on the hook.
+	//   3. The inbox is not livechat – email / other channels have no bot
+	//      gate, so the conversation must always be visible.
+	// Together this means: only a livechat conversation that is still
+	// unassigned and has not requested a human is hidden from agent lists.
+	whereClause += ` AND (
+		COALESCE(conversations.meta->>'bot_human_requested', 'false') = 'true'
+		OR conversations.assigned_user_id IS NOT NULL
+		OR inboxes.channel <> 'livechat'
+	)`
 
 	baseQuery = fmt.Sprintf(baseQuery, whereClause)
 

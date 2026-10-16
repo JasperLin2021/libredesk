@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"time"
 
 	"github.com/abhinavxd/libredesk/internal/business_hours/models"
@@ -38,10 +39,27 @@ func (m *Manager) CalculateDeadline(start time.Time, slaMinutes int, businessHou
 	remainingMinutes := slaMinutes
 	maxIterations := ((slaMinutes+59)/60)*24 + 1
 
-	// Unmarshal working hours.
-	var workingHours map[string]models.WorkingHours
-	if err := json.Unmarshal(businessHours.Hours, &workingHours); err != nil {
+	// Unmarshal working hours. Supports both the current array format
+	// {"Monday": [{"open": "09:00", "close": "12:00"}, {"open": "14:00", "close": "18:00"}]}
+	// and the legacy single-range format {"Monday": {"open": "09:00", "close": "17:00"}}.
+	var rawHours map[string]json.RawMessage
+	if err := json.Unmarshal(businessHours.Hours, &rawHours); err != nil {
 		return time.Time{}, fmt.Errorf("could not unmarshal working hours for SLA deadline calcuation: %v", err)
+	}
+
+	workingHours := make(map[string][]models.WorkingHours, len(rawHours))
+	for day, raw := range rawHours {
+		var ranges []models.WorkingHours
+		if err := json.Unmarshal(raw, &ranges); err != nil {
+			var single models.WorkingHours
+			if err := json.Unmarshal(raw, &single); err != nil {
+				return time.Time{}, fmt.Errorf("could not unmarshal working hours for %s: %v", day, err)
+			}
+			ranges = []models.WorkingHours{single}
+		}
+		// Sort ranges by open time so they are consumed in order.
+		sort.Slice(ranges, func(i, j int) bool { return ranges[i].Open < ranges[j].Open })
+		workingHours[day] = ranges
 	}
 
 	// Unmarshal holidays.
@@ -52,10 +70,20 @@ func (m *Manager) CalculateDeadline(start time.Time, slaMinutes int, businessHou
 		}
 	}
 
-	// Create a map of holidays.
+	// Create a map of holidays, expanding date ranges into individual dates.
 	holidaysMap := make(map[string]struct{})
 	for _, holiday := range holidays {
-		holidaysMap[holiday.Date] = struct{}{}
+		holidayStart, err := time.Parse(time.DateOnly, holiday.StartDate)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid holiday start date %s: %v", holiday.StartDate, err)
+		}
+		holidayEnd, err := time.Parse(time.DateOnly, holiday.EndDate)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid holiday end date %s: %v", holiday.EndDate, err)
+		}
+		for d := holidayStart; !d.After(holidayEnd); d = d.AddDate(0, 0, 1) {
+			holidaysMap[d.Format(time.DateOnly)] = struct{}{}
+		}
 	}
 
 	iterations := 0
@@ -74,49 +102,52 @@ func (m *Manager) CalculateDeadline(start time.Time, slaMinutes int, businessHou
 
 		// Get working hours for the current day.
 		dayOfWeek := currentTime.Weekday().String()
-		workHours, exists := workingHours[dayOfWeek]
+		dayRanges, exists := workingHours[dayOfWeek]
 
 		// Not a working day, move to next day.
-		if !exists {
+		if !exists || len(dayRanges) == 0 {
 			currentTime = nextDay(currentTime, loc)
 			continue
 		}
 
-		// Parse open and close times for the current day in the specified time zone.
-		var startOfWork, endOfWork time.Time
-		var err error
-		startOfWork, err = parseTime(currentTime, workHours.Open, loc)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("invalid open time %s for %s: %v", workHours.Open, dayOfWeek, err)
-		}
-		endOfWork, err = parseTime(currentTime, workHours.Close, loc)
-		if err != nil {
-			return time.Time{}, fmt.Errorf("invalid close time %s for %s: %v", workHours.Close, dayOfWeek, err)
+		// Consume the working time ranges of the current day in order.
+		for _, workHours := range dayRanges {
+			// Parse open and close times for the current range in the specified time zone.
+			startOfWork, err := parseTime(currentTime, workHours.Open, loc)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("invalid open time %s for %s: %v", workHours.Open, dayOfWeek, err)
+			}
+			endOfWork, err := parseTime(currentTime, workHours.Close, loc)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("invalid close time %s for %s: %v", workHours.Close, dayOfWeek, err)
+			}
+
+			// Current time is past this range, try the next range of the day.
+			if !currentTime.Before(endOfWork) {
+				continue
+			}
+
+			// Adjust to start of work if current time is before it.
+			if currentTime.Before(startOfWork) {
+				currentTime = startOfWork
+			}
+
+			// Deduct minutes worked in this range from remaining SLA time.
+			workMinutesLeft := int(endOfWork.Sub(currentTime).Minutes())
+			if workMinutesLeft >= remainingMinutes {
+				return currentTime.Add(time.Duration(remainingMinutes) * time.Minute), nil
+			}
+
+			remainingMinutes -= workMinutesLeft
+			if remainingMinutes == 0 {
+				return endOfWork, nil
+			}
+
+			currentTime = endOfWork
 		}
 
-		// Adjust to start of work if current time is before it.
-		if currentTime.Before(startOfWork) {
-			currentTime = startOfWork
-		}
-
-		// Move to next day if current time is after end of work.
-		if currentTime.After(endOfWork) {
-			currentTime = nextDay(startOfWork, loc)
-			continue
-		}
-
-		// Deduct minutes worked today from remaining SLA time.
-		workMinutesLeft := int(endOfWork.Sub(currentTime).Minutes())
-		if workMinutesLeft >= remainingMinutes {
-			return currentTime.Add(time.Duration(remainingMinutes) * time.Minute), nil
-		}
-
-		remainingMinutes -= workMinutesLeft
-		if remainingMinutes == 0 {
-			return endOfWork, nil
-		}
-
-		currentTime = nextDay(startOfWork, loc)
+		// All ranges of the day are consumed, move to next day.
+		currentTime = nextDay(currentTime, loc)
 	}
 
 	return currentTime, nil

@@ -56,7 +56,7 @@ func TestCalculateDeadline(t *testing.T) {
 			startTime:  time.Date(2023, 10, 10, 10, 0, 0, 0, locUTC),
 			slaMinutes: 60,
 			businessHours: models.BusinessHours{
-				Holidays: mustMarshalJSON([]models.Holiday{{Date: "2023-10-10"}}),
+				Holidays: mustMarshalJSON([]models.Holiday{{StartDate: "2023-10-10", EndDate: "2023-10-10"}}),
 				Hours: mustMarshalJSON(map[string]models.WorkingHours{
 					"Tuesday": {Open: "09:00", Close: "17:00"},
 				}),
@@ -197,7 +197,7 @@ func TestCalculateDeadline(t *testing.T) {
 			startTime:  time.Date(2023, 10, 10, 10, 0, 0, 0, locUTC),
 			slaMinutes: 60,
 			businessHours: models.BusinessHours{
-				Holidays: mustMarshalJSON([]models.Holiday{{Date: "2023-10-10"}}),
+				Holidays: mustMarshalJSON([]models.Holiday{{StartDate: "2023-10-10", EndDate: "2023-10-10"}}),
 				Hours: mustMarshalJSON(map[string]models.WorkingHours{
 					"Tuesday": {Open: "09:00", Close: "17:00"},
 				}),
@@ -385,8 +385,8 @@ func TestCalculateDeadline(t *testing.T) {
 			slaMinutes: 60,
 			businessHours: models.BusinessHours{
 				Holidays: mustMarshalJSON([]models.Holiday{
-					{Date: "2023-10-10"},
-					{Date: "2023-10-11"},
+					{StartDate: "2023-10-10", EndDate: "2023-10-10"},
+					{StartDate: "2023-10-11", EndDate: "2023-10-11"},
 				}),
 				Hours: mustMarshalJSON(map[string]models.WorkingHours{
 					"Tuesday":   {Open: "09:00", Close: "17:00"},
@@ -493,6 +493,100 @@ func TestCalculateDeadline(t *testing.T) {
 			},
 			timeZone:       "Asia/Kolkata",
 			expectedResult: time.Date(2025, 03, 27, 10, 10, 0, 0, locIST),
+		},
+		// Multiple time ranges per day (current array format).
+		{
+			name:       "Multiple Ranges Same Day - Deadline In First Range",
+			startTime:  time.Date(2023, 10, 10, 9, 30, 0, 0, locUTC), // Tuesday
+			slaMinutes: 60,
+			businessHours: models.BusinessHours{
+				Hours: mustMarshalJSON(map[string][]models.WorkingHours{
+					"Tuesday": {{Open: "09:00", Close: "12:00"}, {Open: "14:00", Close: "18:00"}},
+				}),
+			},
+			timeZone:       "UTC",
+			expectedResult: time.Date(2023, 10, 10, 10, 30, 0, 0, locUTC),
+		},
+		{
+			name:       "Multiple Ranges Same Day - Deadline Spans Both Ranges",
+			startTime:  time.Date(2023, 10, 10, 11, 0, 0, 0, locUTC), // Tuesday
+			slaMinutes: 180, // 1 hour left in the morning + 2 hours in the afternoon.
+			businessHours: models.BusinessHours{
+				Hours: mustMarshalJSON(map[string][]models.WorkingHours{
+					"Tuesday": {{Open: "09:00", Close: "12:00"}, {Open: "14:00", Close: "18:00"}},
+				}),
+			},
+			timeZone:       "UTC",
+			expectedResult: time.Date(2023, 10, 10, 16, 0, 0, 0, locUTC),
+		},
+		{
+			name:       "Multiple Ranges Same Day - Start In Lunch Break",
+			startTime:  time.Date(2023, 10, 10, 13, 0, 0, 0, locUTC), // Tuesday, lunch break
+			slaMinutes: 60,
+			businessHours: models.BusinessHours{
+				Hours: mustMarshalJSON(map[string][]models.WorkingHours{
+					"Tuesday": {{Open: "09:00", Close: "12:00"}, {Open: "14:00", Close: "18:00"}},
+				}),
+			},
+			timeZone:       "UTC",
+			expectedResult: time.Date(2023, 10, 10, 15, 0, 0, 0, locUTC),
+		},
+		{
+			name:       "Multiple Ranges Same Day - Start After All Ranges",
+			startTime:  time.Date(2023, 10, 10, 19, 0, 0, 0, locUTC), // Tuesday, after close
+			slaMinutes: 60,
+			businessHours: models.BusinessHours{
+				Hours: mustMarshalJSON(map[string][]models.WorkingHours{
+					"Tuesday": {{Open: "09:00", Close: "12:00"}, {Open: "14:00", Close: "18:00"}},
+				}),
+			},
+			timeZone:       "UTC",
+			expectedResult: time.Date(2023, 10, 17, 10, 0, 0, 0, locUTC), // Next Tuesday 09:00 + 60m
+		},
+		// Holiday date ranges.
+		{
+			name:       "Holiday Date Range",
+			startTime:  time.Date(2023, 10, 9, 9, 0, 0, 0, locUTC), // Monday
+			slaMinutes: 60,
+			businessHours: models.BusinessHours{
+				Holidays: mustMarshalJSON([]models.Holiday{{Name: "National Day", StartDate: "2023-10-09", EndDate: "2023-10-13"}}),
+				Hours: mustMarshalJSON(map[string][]models.WorkingHours{
+					"Monday":    {{Open: "09:00", Close: "17:00"}},
+					"Tuesday":   {{Open: "09:00", Close: "17:00"}},
+					"Wednesday": {{Open: "09:00", Close: "17:00"}},
+					"Thursday":  {{Open: "09:00", Close: "17:00"}},
+					"Friday":    {{Open: "09:00", Close: "17:00"}},
+				}),
+			},
+			timeZone:       "UTC",
+			expectedResult: time.Date(2023, 10, 16, 10, 0, 0, 0, locUTC), // Next Monday
+		},
+		// Legacy single-day holiday format.
+		{
+			name:       "Legacy Single Day Holiday",
+			startTime:  time.Date(2023, 10, 10, 10, 0, 0, 0, locUTC), // Tuesday
+			slaMinutes: 60,
+			businessHours: models.BusinessHours{
+				Holidays: mustMarshalJSON([]map[string]string{{"name": "Holiday", "date": "2023-10-10"}}),
+				Hours: mustMarshalJSON(map[string][]models.WorkingHours{
+					"Tuesday": {{Open: "09:00", Close: "17:00"}},
+				}),
+			},
+			timeZone:       "UTC",
+			expectedResult: time.Date(2023, 10, 17, 10, 0, 0, 0, locUTC),
+		},
+		// Legacy single object hours format.
+		{
+			name:       "Legacy Single Object Hours",
+			startTime:  time.Date(2023, 10, 10, 8, 0, 0, 0, locUTC),
+			slaMinutes: 60,
+			businessHours: models.BusinessHours{
+				Hours: mustMarshalJSON(map[string]models.WorkingHours{
+					"Tuesday": {Open: "09:00", Close: "17:00"},
+				}),
+			},
+			timeZone:       "UTC",
+			expectedResult: time.Date(2023, 10, 10, 10, 0, 0, 0, locUTC),
 		},
 	}
 

@@ -2,6 +2,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/jmoiron/sqlx/types"
@@ -20,14 +21,38 @@ type BusinessHours struct {
 	Hours        types.JSONText `db:"hours" json:"hours"`
 }
 
-// WorkingHours represents the working hours for a specific day.
+// WorkingHours represents a single working time range within a day.
+// A day may have multiple ranges, stored as a JSON array.
 type WorkingHours struct {
-	Open         string `json:"open"`
-	Close        string `json:"close"`
+	Open  string `json:"open"`
+	Close string `json:"close"`
 }
 
-// Holiday represents a holiday.
+// Holiday represents a holiday spanning a date range (inclusive).
 type Holiday struct {
-	Name string `json:"name"`
-	Date string `json:"date"`
+	Name      string `json:"name"`
+	StartDate string `json:"start_date"`
+	EndDate   string `json:"end_date"`
+}
+
+// UnmarshalJSON supports the legacy single-day format
+// {"name": "...", "date": "2024-01-01"} by mapping "date" to both
+// StartDate and EndDate.
+func (h *Holiday) UnmarshalJSON(b []byte) error {
+	type alias Holiday
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return err
+	}
+	*h = Holiday(a)
+	if h.StartDate == "" {
+		var legacy struct {
+			Date string `json:"date"`
+		}
+		if err := json.Unmarshal(b, &legacy); err == nil && legacy.Date != "" {
+			h.StartDate = legacy.Date
+			h.EndDate = legacy.Date
+		}
+	}
+	return nil
 }
