@@ -14,6 +14,7 @@
         <TabsTrigger value="installation">{{
           $t('admin.inbox.livechat.tabs.installation')
         }}</TabsTrigger>
+        <TabsTrigger value="handoff">{{ $t('admin.inbox.livechat.tabs.handoff') }}</TabsTrigger>
       </TabsList>
 
       <div class="mt-8">
@@ -1197,6 +1198,74 @@
             </div>
           </div>
         </div>
+
+        <!-- Handoff Tab -->
+        <div v-show="activeTab === 'handoff'" class="space-y-8">
+          <div class="space-y-4">
+            <h4 class="text-base font-semibold text-foreground">
+              {{ $t('admin.inbox.livechat.handoff.title') }}
+            </h4>
+
+            <FormField v-slot="{ componentField }" name="handoff_business_hours_id">
+              <FormItem>
+                <FormLabel>{{ $t('admin.inbox.livechat.handoff.selectHours') }}</FormLabel>
+                <FormControl>
+                  <Select v-bind="componentField">
+                    <SelectTrigger class="max-w-md">
+                      <SelectValue :placeholder="$t('admin.inbox.livechat.handoff.unrestricted')" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem :value="0">
+                          {{ $t('admin.inbox.livechat.handoff.unrestricted') }}
+                        </SelectItem>
+                        <SelectItem
+                          v-for="businessHour in businessHours"
+                          :key="businessHour.id"
+                          :value="businessHour.id"
+                        >
+                          {{ businessHour.name }}
+                        </SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <FormDescription>{{ $t('admin.inbox.livechat.handoff.description') }}</FormDescription>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+
+            <FormField v-slot="{ componentField }" name="handoff_hours_mode">
+              <FormItem>
+                <p class="text-muted-foreground text-xs flex items-start gap-1.5">
+                  <Info class="size-4 shrink-0 mt-0.5" />
+                  <span>{{
+                    handoffRestricted
+                      ? $t('admin.inbox.livechat.handoff.description')
+                      : $t('admin.inbox.livechat.handoff.noHours')
+                  }}</span>
+                </p>
+                <FormControl>
+                  <RadioGroup v-bind="componentField" class="flex flex-wrap gap-6">
+                    <div class="flex items-center space-x-2">
+                      <RadioGroupItem id="handoff-business" value="business" />
+                      <Label for="handoff-business">{{
+                        $t('admin.inbox.livechat.handoff.businessHours')
+                      }}</Label>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                      <RadioGroupItem id="handoff-off-business" value="off_business" />
+                      <Label for="handoff-off-business">{{
+                        $t('admin.inbox.livechat.handoff.offBusinessHours')
+                      }}</Label>
+                    </div>
+                  </RadioGroup>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+          </div>
+        </div>
       </div>
     </Tabs>
 
@@ -1227,6 +1296,7 @@ import { Button } from '@shared-ui/components/ui/button'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue
@@ -1234,7 +1304,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@shared-ui/components/ui/tabs'
 import { RadioGroup, RadioGroupItem } from '@shared-ui/components/ui/radio-group'
 import { Label } from '@shared-ui/components/ui/label'
-import { Plus, X, TriangleAlert, GripVertical, Lightbulb } from 'lucide-vue-next'
+import { Plus, X, TriangleAlert, GripVertical, Lightbulb, Info } from 'lucide-vue-next'
 import Draggable from 'vuedraggable'
 import { useI18n } from 'vue-i18n'
 import PreChatFormConfig, { getDefaultPrechatFields } from './PreChatFormConfig.vue'
@@ -1278,6 +1348,8 @@ const FIELD_TAB = [
   ['config.trusted_domains', 'security'],
   ['config.blocked_ips', 'security'],
   ['secret', 'security'],
+  ['handoff_business_hours_id', 'handoff'],
+  ['handoff_hours_mode', 'handoff'],
   ['config.continuity', 'general'],
   ['config.brand_name', 'general'],
   ['config.website_url', 'general'],
@@ -1329,6 +1401,21 @@ const emitter = useEmitter()
 const emailInboxes = computed(() =>
   inboxStore.inboxes.filter((inbox) => inbox.channel === 'email' && inbox.enabled)
 )
+
+// Working hours powering the "转人工设置" time slot picker.
+const businessHours = ref([])
+
+const fetchBusinessHours = async () => {
+  try {
+    const response = await api.getAllBusinessHours()
+    businessHours.value = response.data.data
+  } catch (error) {
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      variant: 'destructive',
+      description: handleHTTPError(error).message
+    })
+  }
+}
 
 const baseUrl = computed(() => {
   return appSettingsStore.settings?.['app.root_url'] || window.location.origin
@@ -1395,6 +1482,8 @@ const form = useForm({
     csat_enabled: false,
     prompt_tags_on_reply: false,
     linked_email_inbox_id: null,
+    handoff_business_hours_id: 0,
+    handoff_hours_mode: 'business',
     config: {
       brand_name: '',
       bot_name: '',
@@ -1521,6 +1610,12 @@ const previewConfig = computed(() => ({
   home_apps: homeApps.value
 }))
 
+// An ID of 0 or null means the handoff time is unrestricted.
+const handoffRestricted = computed(() => {
+  const id = Number(form.values.handoff_business_hours_id)
+  return Number.isInteger(id) && id > 0
+})
+
 const avatarUploading = ref(false)
 const avatarInitials = computed(() => {
   const name = form.values.config?.brand_name?.trim() || form.values.name?.trim() || 'L'
@@ -1629,6 +1724,7 @@ const textareaToLines = (value) =>
 onMounted(() => {
   inboxStore.fetchInboxes()
   appSettingsStore.fetchPublicConfig()
+  fetchBusinessHours()
 })
 
 const onSubmit = form.handleSubmit(
@@ -1653,6 +1749,11 @@ const onSubmit = form.handleSubmit(
       values.linked_email_inbox_id = null
       values.config.continuity = {}
     }
+
+    // No time slot selected means handoff is unrestricted; the API expects NULL.
+    const handoffId = Number(values.handoff_business_hours_id)
+    values.handoff_business_hours_id = handoffId > 0 ? handoffId : null
+    values.handoff_hours_mode = values.handoff_hours_mode === 'off_business' ? 'off_business' : 'business'
 
     // Treat an enabled prechat form with no enabled fields as disabled.
     const pc = { ...prechatConfig.value }
@@ -1685,6 +1786,13 @@ watch(
     if (Array.isArray(newValues.config?.blocked_ips)) {
       newValues.config.blocked_ips = newValues.config.blocked_ips.join('\n')
     }
+
+    // Select only deals in numbers, so a NULL handoff hours ID becomes the "unrestricted" option.
+    newValues.handoff_business_hours_id = Number(newValues.handoff_business_hours_id) > 0
+      ? Number(newValues.handoff_business_hours_id)
+      : 0
+    newValues.handoff_hours_mode =
+      newValues.handoff_hours_mode === 'off_business' ? 'off_business' : 'business'
 
     if (newValues.config?.home_apps) {
       homeApps.value = [...newValues.config.home_apps]

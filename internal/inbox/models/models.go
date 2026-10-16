@@ -17,22 +17,33 @@ const (
 	AuthTypeOAuth2   = "oauth2"
 )
 
+// Handoff hours mode determines when the "transfer to human" action is
+// allowed, relative to the inbox's selected business hours.
+const (
+	// HandoffHoursModeBusiness allows handoff only during working hours.
+	HandoffHoursModeBusiness = "business"
+	// HandoffHoursModeOffBusiness allows handoff only outside working hours.
+	HandoffHoursModeOffBusiness = "off_business"
+)
+
 // Inbox represents a inbox record in DB.
 type Inbox struct {
-	ID                 int             `db:"id" json:"id"`
-	UUID               string          `db:"uuid" json:"uuid"`
-	CreatedAt          time.Time       `db:"created_at" json:"created_at"`
-	UpdatedAt          time.Time       `db:"updated_at" json:"updated_at"`
-	Name               string          `db:"name" json:"name"`
-	Channel            string          `db:"channel" json:"channel"`
-	Enabled            bool            `db:"enabled" json:"enabled"`
-	CSATEnabled        bool            `db:"csat_enabled" json:"csat_enabled"`
-	PromptTagsOnReply  bool            `db:"prompt_tags_on_reply" json:"prompt_tags_on_reply"`
-	From               string          `db:"from" json:"from"`
-	FromNameTemplate   string          `db:"from_name_template" json:"from_name_template"`
-	Config             json.RawMessage `db:"config" json:"config"`
-	Secret             null.String     `db:"secret" json:"secret"`
-	LinkedEmailInboxID null.Int        `db:"linked_email_inbox_id" json:"linked_email_inbox_id"`
+	ID                     int             `db:"id" json:"id"`
+	UUID                   string          `db:"uuid" json:"uuid"`
+	CreatedAt              time.Time       `db:"created_at" json:"created_at"`
+	UpdatedAt              time.Time       `db:"updated_at" json:"updated_at"`
+	Name                   string          `db:"name" json:"name"`
+	Channel                string          `db:"channel" json:"channel"`
+	Enabled                bool            `db:"enabled" json:"enabled"`
+	CSATEnabled            bool            `db:"csat_enabled" json:"csat_enabled"`
+	PromptTagsOnReply      bool            `db:"prompt_tags_on_reply" json:"prompt_tags_on_reply"`
+	From                   string          `db:"from" json:"from"`
+	FromNameTemplate       string          `db:"from_name_template" json:"from_name_template"`
+	Config                 json.RawMessage `db:"config" json:"config"`
+	Secret                 null.String     `db:"secret" json:"secret"`
+	LinkedEmailInboxID     null.Int        `db:"linked_email_inbox_id" json:"linked_email_inbox_id"`
+	HandoffBusinessHoursID null.Int        `db:"handoff_business_hours_id" json:"handoff_business_hours_id"`
+	HandoffHoursMode       string          `db:"handoff_hours_mode" json:"handoff_hours_mode"`
 }
 
 // Config holds the email inbox configuration with multiple SMTP servers and IMAP clients.
@@ -92,6 +103,16 @@ type IMAPConfig struct {
 	ScanInboxSince string `json:"scan_inbox_since"`
 	TLSType        string `json:"tls_type"`
 	TLSSkipVerify  bool   `json:"tls_skip_verify"`
+}
+
+// NormalizedHandoffHoursMode returns a valid handoff hours mode, defaulting to
+// working hours when unset. The DB column is NOT NULL, so an empty mode always
+// falls back to the default.
+func (m *Inbox) NormalizedHandoffHoursMode() string {
+	if m.HandoffHoursMode != HandoffHoursModeOffBusiness {
+		return HandoffHoursModeBusiness
+	}
+	return HandoffHoursModeOffBusiness
 }
 
 // ClearPasswords masks all config passwords

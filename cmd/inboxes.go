@@ -15,6 +15,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/inbox/channel/livechat"
 	imodels "github.com/abhinavxd/libredesk/internal/inbox/models"
 	"github.com/valyala/fasthttp"
+	"github.com/volatiletech/null/v9"
 	"github.com/zerodha/fastglue"
 )
 
@@ -314,6 +315,21 @@ func validateInbox(app *App, inbox imodels.Inbox) error {
 					return envelope.NewError(envelope.InputError, app.i18n.Ts("validation.invalidIPOrCIDR", "entry", entry), nil)
 				}
 			}
+		}
+
+		// Validate handoff (transfer to human) time window settings.
+		switch inbox.HandoffHoursMode {
+		case "", imodels.HandoffHoursModeBusiness, imodels.HandoffHoursModeOffBusiness:
+		default:
+			return envelope.NewError(envelope.InputError, app.i18n.T("globals.messages.somethingWentWrong"), nil)
+		}
+
+		if inbox.HandoffBusinessHoursID.Valid && inbox.HandoffBusinessHoursID.Int > 0 {
+			if _, err := app.businessHours.Get(int(inbox.HandoffBusinessHoursID.Int)); err != nil {
+				return envelope.NewError(envelope.InputError, app.i18n.T("globals.messages.somethingWentWrong"), nil)
+			}
+		} else {
+			inbox.HandoffBusinessHoursID = null.Int{}
 		}
 
 		// Validate linked email inbox if specified

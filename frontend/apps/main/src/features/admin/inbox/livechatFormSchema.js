@@ -27,6 +27,9 @@ export const createFormSchema = (t) =>
     prompt_tags_on_reply: z.boolean(),
     secret: z.string().nullable().optional(),
     linked_email_inbox_id: z.number().nullable().optional(),
+    // 0 or null means handoff is not restricted to any working hours.
+    handoff_business_hours_id: z.number().int().min(0).nullable().optional(),
+    handoff_hours_mode: z.enum(['business', 'off_business']).default('business'),
     config: z.object({
       brand_name: z.string().min(1, { message: t('globals.messages.required') }),
       bot_name: z.string().optional().or(z.literal('')),

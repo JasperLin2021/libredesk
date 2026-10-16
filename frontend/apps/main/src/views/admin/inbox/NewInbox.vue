@@ -141,6 +141,8 @@ const submitLiveChatForm = (values) => {
     prompt_tags_on_reply: values.prompt_tags_on_reply ?? false,
     secret: values.secret ?? '',
     linked_email_inbox_id: values.linked_email_inbox_id ?? null,
+    handoff_business_hours_id: values.handoff_business_hours_id ?? null,
+    handoff_hours_mode: values.handoff_hours_mode === 'off_business' ? 'off_business' : 'business',
     config: values.config
   }
   createInbox(payload)
