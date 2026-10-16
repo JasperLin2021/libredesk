@@ -97,7 +97,7 @@ const startNewConversation = async () => {
   // Backend will reuse the same conversation and set status to open
   try {
     const resp = await api.initChatConversation({})
-    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset, blocked } = resp.data.data
     conversation.business_hours_id = business_hours_id
     conversation.working_hours_utc_offset = working_hours_utc_offset
 
@@ -105,7 +105,9 @@ const startNewConversation = async () => {
       saveSession(session_token, user, userStore, true)
     }
 
-    chatStore.addConversationToList(conversation)
+    if (!blocked) {
+      chatStore.addConversationToList(conversation)
+    }
     chatStore.setCurrentConversation(conversation)
     chatStore.replaceMessages(messages || [])
     preChatFormSubmitted.value = true
@@ -157,7 +159,7 @@ const initConversationForWelcome = async () => {
     }
 
     const resp = await api.initChatConversation(payload)
-    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset, blocked } = resp.data.data
     conversation.business_hours_id = business_hours_id
     conversation.working_hours_utc_offset = working_hours_utc_offset
 
@@ -167,7 +169,9 @@ const initConversationForWelcome = async () => {
       saveSession(session_token, user, userStore, true)
     }
 
-    chatStore.addConversationToList(conversation)
+    if (!blocked) {
+      chatStore.addConversationToList(conversation)
+    }
     chatStore.setCurrentConversation(conversation)
     chatStore.replaceMessages(messages)
 
@@ -197,7 +201,7 @@ const handlePreChatFormSubmit = async ({ formData, message }) => {
     }
 
     const resp = await api.initChatConversation(payload)
-    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+    const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset, blocked } = resp.data.data
     conversation.business_hours_id = business_hours_id
     conversation.working_hours_utc_offset = working_hours_utc_offset
 
@@ -208,7 +212,9 @@ const handlePreChatFormSubmit = async ({ formData, message }) => {
       saveSession(session_token, user, userStore, true)
     }
 
-    chatStore.addConversationToList(conversation)
+    if (!blocked) {
+      chatStore.addConversationToList(conversation)
+    }
     chatStore.setCurrentConversation(conversation)
     chatStore.replaceMessages(messages)
 

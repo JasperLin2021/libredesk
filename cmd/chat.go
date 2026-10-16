@@ -268,6 +268,53 @@ func handleChatInit(r *fastglue.Request) error {
 		contactID = visitor.ID
 	}
 
+	// Blacklisted contacts never get a conversation: bail out before one is
+	// created or reopened so nothing is broadcast to the agent inbox and no
+	// service history record is written. The widget only sees the welcome
+	// message.
+	if isBlacklistedContact(app, contactID) {
+		app.lo.Info("blocking blacklisted contact on chat init", "contact_id", contactID, "inbox_id", inbox.ID)
+
+		messages := buildBlockedWidgetMessages(app, inbox.ID)
+
+		// The placeholder conversation carries the welcome message as its last
+		// message so the widgets that render a conversation card keep working.
+		placeholder := cmodels.ChatConversation{
+			UUID:      blockedConversationUUID(contactID),
+			Status:    cmodels.StatusOpen,
+			CreatedAt: time.Now(),
+			Meta:      json.RawMessage(`{}`),
+		}
+		if len(messages) > 0 {
+			placeholder.LastChatMessage = cmodels.LastChatMessage{
+				Content:   messages[0].Content,
+				CreatedAt: messages[0].CreatedAt,
+				Author: umodels.ChatUser{
+					FirstName: messages[0].Author.FirstName,
+					LastName:  messages[0].Author.LastName,
+				},
+			}
+		}
+
+		response := map[string]any{
+			"conversation": placeholder,
+			"messages":     messages,
+			"blocked":      true,
+		}
+		if newSessionToken != "" {
+			response["session_token"] = newSessionToken
+			response["visitor_token"] = visitorToken
+			response["user"] = map[string]any{
+				"user_id":    contactID,
+				"is_visitor": isVisitor,
+				"first_name": visitor.FirstName,
+				"last_name":  visitor.LastName,
+				"avatar_url": visitor.AvatarURL.String,
+			}
+		}
+		return r.SendEnvelope(response)
+	}
+
 	// Check if user already has an existing conversation.
 	// Same user should always use the same conversation.
 	existingConversations, err := app.conversation.GetContactChatConversations(contactID, inbox.ID)
@@ -703,6 +750,26 @@ func handleChatSendMessage(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.maxLength", "max", strconv.Itoa(maxChatMessageLength)), nil, envelope.InputError)
 	}
 
+	// Blacklisted contacts only get their own message echoed back so it shows
+	// up in their widget. Nothing is persisted, no automatic reply (not even
+	// the welcome message) is sent and no agent ever sees it.
+	if contactID, cerr := getWidgetContactID(r); cerr == nil && isBlacklistedContact(app, contactID) {
+		app.lo.Info("echoing message from blacklisted contact", "contact_id", contactID, "conversation_uuid", conversationUUID)
+		return r.SendEnvelope(map[string]any{
+			"blocked": true,
+			"message": buildBlockedEchoMessage(app, contactID, req.Message),
+		})
+	}
+
+	// A contact that was blacklisted while this widget session was open still
+	// holds the placeholder UUID. Now that they are off the blacklist it has to
+	// resolve to a real conversation, otherwise every message they send fails
+	// with "conversation not found" until the page is reloaded.
+	conversationUUID, recovered, err := resolveWidgetConversationUUID(app, r, conversationUUID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
 	senderID, conversation, err := getContactConversation(r, conversationUUID)
 	if err != nil {
 		return err
@@ -744,7 +811,7 @@ func handleChatSendMessage(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 	}
 
-	return sendChatMessageResponseWithBotMessages(app, r, message.UUID, botMessages)
+	return sendChatMessageResponseWithBotMessages(app, r, message.UUID, botMessages, recovered)
 }
 
 // handleWidgetMediaUpload handles media uploads for the widget.
@@ -763,6 +830,25 @@ func handleWidgetMediaUpload(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.Ts("globals.messages.required", "name", "{globals.terms.conversation}"), nil, envelope.InputError)
 	}
 	conversationUUID := conversationValues[0]
+
+	// Blacklisted contacts only get their own attachment echoed back so it
+	// shows up in their widget. Nothing is persisted as a message and no agent
+	// ever sees the file.
+	if contactID, cerr := getWidgetContactID(r); cerr == nil && isBlacklistedContact(app, contactID) {
+		app.lo.Info("echoing media upload from blacklisted contact", "contact_id", contactID)
+		echo, err := echoBlockedWidgetUpload(app, r, form, contactID)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		return r.SendEnvelope(map[string]any{"blocked": true, "message": echo})
+	}
+
+	// Same placeholder recovery as the send path: see
+	// resolveWidgetConversationUUID.
+	conversationUUID, recovered, err := resolveWidgetConversationUUID(app, r, conversationUUID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
 
 	senderID, conversation, err := getContactConversation(r, conversationUUID)
 	if err != nil {
@@ -871,12 +957,15 @@ func handleWidgetMediaUpload(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 	}
 
-	return sendChatMessageResponseWithBotMessages(app, r, message.UUID, botMessages)
+	return sendChatMessageResponseWithBotMessages(app, r, message.UUID, botMessages, recovered)
 }
 
 // sendChatMessageResponseWithBotMessages sends the user message along with any
-// bot messages generated by quick reply processing.
-func sendChatMessageResponseWithBotMessages(app *App, r *fastglue.Request, messageUUID string, botMessages []cmodels.Message) error {
+// bot messages generated by quick reply processing. When includeConversation is
+// true the conversation itself is included, which the widget needs when the
+// conversation was created on the fly (a placeholder UUID was resolved to a
+// real conversation) so it can switch over to it.
+func sendChatMessageResponseWithBotMessages(app *App, r *fastglue.Request, messageUUID string, botMessages []cmodels.Message, includeConversation bool) error {
 	message, err := app.conversation.GetMessage(messageUUID)
 	if err != nil {
 		app.lo.Error("error fetching inserted message", "message_uuid", messageUUID, "error", err)
@@ -920,14 +1009,107 @@ func sendChatMessageResponseWithBotMessages(app *App, r *fastglue.Request, messa
 		})
 	}
 
-	return r.SendEnvelope(map[string]any{
+	resp := map[string]any{
 		"message":      userMsg,
 		"bot_messages": botMsgs,
-	})
+	}
+
+	// Hand the freshly resolved conversation (and its messages) back so the
+	// widget can drop the placeholder it has been holding.
+	if includeConversation {
+		conversation, err := app.conversation.GetConversation(0, userMsg.ConversationUUID, "")
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		convResp, err := buildConversationResponseWithBusinessHours(app, conversation)
+		if err != nil {
+			return sendErrorEnvelope(r, err)
+		}
+		resp["conversation"] = convResp.Conversation
+		resp["messages"] = convResp.Messages
+		resp["business_hours_id"] = convResp.BusinessHoursID
+		resp["working_hours_utc_offset"] = convResp.WorkingHoursUTCOffset
+	}
+
+	return r.SendEnvelope(resp)
 }
 
 // getContactConversation gets the contact ID from middleware, fetches the conversation,
 // and verifies the conversation belongs to the contact.
+// resolveWidgetConversationUUID swaps the placeholder conversation UUID that a
+// blacklisted contact is handed by handleChatInit for a real conversation. The
+// widget keeps sending to the placeholder for as long as the page is open, so
+// once the contact is removed from the blacklist every message would fail with
+// "conversation not found" without this. It returns the UUID to use and whether
+// a placeholder was resolved (the caller then has to return the conversation to
+// the widget so it can switch over).
+func resolveWidgetConversationUUID(app *App, r *fastglue.Request, conversationUUID string) (string, bool, error) {
+	contactID, err := getWidgetContactID(r)
+	if err != nil || contactID <= 0 {
+		return conversationUUID, false, nil
+	}
+	// Only the placeholder is eligible.
+	if conversationUUID != blockedConversationUUID(contactID) {
+		return conversationUUID, false, nil
+	}
+	// Still blacklisted: the caller's blacklist branch already handled it.
+	if isBlacklistedContact(app, contactID) {
+		return conversationUUID, false, nil
+	}
+
+	inbox, err := getWidgetInbox(r)
+	if err != nil {
+		app.lo.Error("error getting inbox from middleware context", "error", err)
+		return "", false, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+
+	// Reuse the most recent conversation when the contact already has one
+	// (e.g. started before the contact was blacklisted).
+	existing, err := app.conversation.GetContactChatConversations(contactID, inbox.ID)
+	if err != nil {
+		return "", false, err
+	}
+	if len(existing) > 0 {
+		conv := existing[0]
+		if conv.Status == cmodels.StatusClosed {
+			if err := app.conversation.ReopenAndUnassignConversation(conv.UUID, contactID, inbox.ID); err != nil {
+				app.lo.Error("error reopening closed conversation", "uuid", conv.UUID, "error", err)
+			}
+		}
+		app.lo.Info("resolved blacklist placeholder to existing conversation",
+			"contact_id", contactID, "conversation_uuid", conv.UUID)
+		return conv.UUID, true, nil
+	}
+
+	// No conversation yet: create one, mirroring handleChatInit, and replay the
+	// welcome message (with topic cards) the visitor has been looking at.
+	_, newUUID, err := app.conversation.CreateConversation(
+		contactID,
+		inbox.ID,
+		"",
+		time.Now(),
+		"",
+		false,
+		map[string]any{},
+		nil,
+		maxChatConversationsPerContact,
+		chatConversationRateLimitWindow,
+	)
+	if err != nil {
+		if envErr, ok := err.(envelope.Error); ok && envErr.ErrorType == envelope.RateLimitError {
+			return "", false, err
+		}
+		app.lo.Error("error creating conversation for recovered contact", "contact_id", contactID, "error", err)
+		return "", false, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	if err := app.conversation.SendWelcomeReply(newUUID); err != nil {
+		app.lo.Error("error sending welcome reply for recovered conversation", "conversation_uuid", newUUID, "error", err)
+	}
+	app.lo.Info("resolved blacklist placeholder to a new conversation",
+		"contact_id", contactID, "conversation_uuid", newUUID)
+	return newUUID, true, nil
+}
+
 func getContactConversation(r *fastglue.Request, conversationUUID string) (int, cmodels.Conversation, error) {
 	app := r.Context.(*App)
 

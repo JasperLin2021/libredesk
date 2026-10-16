@@ -74,7 +74,7 @@ const initViaVisitorToken = async (isReturningVisitor) => {
       initPayload.visitor_token = visitorToken
     }
     const resp = await api.initChatConversation(initPayload)
-    const { conversation, session_token, visitor_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+    const { conversation, session_token, visitor_token, user, messages, business_hours_id, working_hours_utc_offset, blocked } = resp.data.data
     conversation.business_hours_id = business_hours_id
     conversation.working_hours_utc_offset = working_hours_utc_offset
 
@@ -88,7 +88,11 @@ const initViaVisitorToken = async (isReturningVisitor) => {
       saveSession(session_token, user, userStore, false)
     }
 
-    chatStore.addConversationToList(conversation)
+    // A blacklisted contact only ever gets the welcome message; the placeholder
+    // conversation is never a real one, so keep it out of the conversation list.
+    if (!blocked) {
+      chatStore.addConversationToList(conversation)
+    }
     chatStore.setCurrentConversation(conversation)
     chatStore.replaceMessages(messages || [])
   } catch (err) {
@@ -171,10 +175,12 @@ const setupParentMessageListeners = () => {
           userStore.setSessionToken(sessionToken)
           setApiSessionToken(sessionToken)
           const resp = await api.initChatConversation({})
-          const { conversation, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+          const { conversation, messages, business_hours_id, working_hours_utc_offset, blocked } = resp.data.data
           conversation.business_hours_id = business_hours_id
           conversation.working_hours_utc_offset = working_hours_utc_offset
-          chatStore.addConversationToList(conversation)
+          if (!blocked) {
+            chatStore.addConversationToList(conversation)
+          }
           chatStore.setCurrentConversation(conversation)
           chatStore.replaceMessages(messages || [])
           widgetStore.navigateToChat()
@@ -196,10 +202,12 @@ const setupParentMessageListeners = () => {
           saveSession(session_token, user, userStore)
           chatStore.conversations = null
           const initResp = await api.initChatConversation({})
-          const { conversation, messages, business_hours_id, working_hours_utc_offset } = initResp.data.data
+          const { conversation, messages, business_hours_id, working_hours_utc_offset, blocked } = initResp.data.data
           conversation.business_hours_id = business_hours_id
           conversation.working_hours_utc_offset = working_hours_utc_offset
-          chatStore.addConversationToList(conversation)
+          if (!blocked) {
+            chatStore.addConversationToList(conversation)
+          }
           chatStore.setCurrentConversation(conversation)
           chatStore.replaceMessages(messages || [])
           resolveInit()

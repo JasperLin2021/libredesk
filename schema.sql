@@ -896,6 +896,34 @@ CREATE TABLE contact_notes (
 );
 CREATE INDEX index_contact_notes_on_contact_id_created_at ON contact_notes (contact_id, created_at);
 
+DROP TABLE IF EXISTS contact_blacklist CASCADE;
+CREATE TABLE contact_blacklist (
+	id BIGSERIAL PRIMARY KEY,
+	created_at TIMESTAMPTZ DEFAULT NOW(),
+	updated_at TIMESTAMPTZ DEFAULT NOW(),
+	contact_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+	reason TEXT NOT NULL DEFAULT '',
+	created_by BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
+	CONSTRAINT constraint_contact_blacklist_on_reason CHECK (length(reason) <= 500)
+);
+CREATE UNIQUE INDEX index_uniq_contact_blacklist_on_contact_id ON contact_blacklist (contact_id);
+CREATE INDEX index_contact_blacklist_on_created_at ON contact_blacklist (created_at DESC);
+
+DROP TABLE IF EXISTS contact_blacklist_logs CASCADE;
+CREATE TABLE contact_blacklist_logs (
+	id BIGSERIAL PRIMARY KEY,
+	created_at TIMESTAMPTZ DEFAULT NOW(),
+	contact_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+	action TEXT NOT NULL DEFAULT 'add',
+	reason TEXT NOT NULL DEFAULT '',
+	actor_id BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
+	CONSTRAINT constraint_contact_blacklist_logs_on_action CHECK (action IN ('add', 'remove')),
+	CONSTRAINT constraint_contact_blacklist_logs_on_reason CHECK (length(reason) <= 500)
+);
+CREATE INDEX index_contact_blacklist_logs_on_contact_id ON contact_blacklist_logs (contact_id);
+CREATE INDEX index_contact_blacklist_logs_on_created_at ON contact_blacklist_logs (created_at DESC);
+CREATE INDEX index_contact_blacklist_logs_on_action ON contact_blacklist_logs (action);
+
 DROP TABLE IF EXISTS activity_logs CASCADE;
 CREATE TABLE activity_logs (
 	id BIGSERIAL PRIMARY KEY,

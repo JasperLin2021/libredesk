@@ -91,7 +91,7 @@ const { startTyping, stopTyping } = useTypingIndicator((isTyping) => {
 
 const initChatConversation = async (messageText) => {
   const resp = await api.initChatConversation({ message: messageText })
-  const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset } = resp.data.data
+  const { conversation, session_token, user, messages, business_hours_id, working_hours_utc_offset, blocked } = resp.data.data
   conversation.business_hours_id = business_hours_id
   conversation.working_hours_utc_offset = working_hours_utc_offset
 
@@ -99,8 +99,11 @@ const initChatConversation = async (messageText) => {
     saveSession(session_token, user, userStore, true)
   }
 
-  // Add the new conversation to the list
-  chatStore.addConversationToList(conversation)
+  // Add the new conversation to the list. A blacklisted contact only ever gets
+  // a placeholder conversation, which must not show up in the list.
+  if (!blocked) {
+    chatStore.addConversationToList(conversation)
+  }
 
   // Update chat store with new conversation and messages.
   chatStore.setCurrentConversation(conversation)
@@ -117,26 +120,27 @@ const sendMessageToConversation = async (messageText, tempMessageID) => {
   // processing creates automatic bot replies.
   const userMessage = data?.message || data
   const botMessages = data?.bot_messages || []
+  const oldUUID = chatStore.currentConversation.uuid
 
   if (tempMessageID && userMessage) {
-    chatStore.replaceMessage(
-      chatStore.currentConversation.uuid,
-      tempMessageID,
-      userMessage
-    )
+    chatStore.replaceMessage(oldUUID, tempMessageID, userMessage)
   }
   if (userMessage) {
-    chatStore.updateConversationListLastMessage(
-      chatStore.currentConversation.uuid,
-      userMessage
-    )
+    chatStore.updateConversationListLastMessage(oldUUID, userMessage)
   }
 
   // Append any bot messages created by quick reply matching.
   if (Array.isArray(botMessages)) {
     botMessages.forEach((botMsg) => {
-      chatStore.addMessageToConversation(chatStore.currentConversation.uuid, botMsg)
+      chatStore.addMessageToConversation(oldUUID, botMsg)
     })
+  }
+
+  // The backend had to create the conversation on the fly (e.g. the contact was
+  // just removed from the blacklist): switch to it so the next send lands in a
+  // real conversation.
+  if (data?.conversation?.uuid && data.conversation.uuid !== oldUUID) {
+    chatStore.adoptConversation(oldUUID, data.conversation, data.messages)
   }
 }
 
@@ -240,19 +244,27 @@ const handleFileUpload = async (files) => {
     // processing creates automatic bot replies.
     const userMessage = data?.message || data
     const botMessages = data?.bot_messages || []
+    const oldUUID = chatStore.currentConversation.uuid
 
     if (tempMessageID && userMessage) {
-      chatStore.replaceMessage(chatStore.currentConversation.uuid, tempMessageID, userMessage)
+      chatStore.replaceMessage(oldUUID, tempMessageID, userMessage)
     }
     if (userMessage) {
-      chatStore.updateConversationListLastMessage(chatStore.currentConversation.uuid, userMessage)
+      chatStore.updateConversationListLastMessage(oldUUID, userMessage)
     }
 
     // Append any bot messages created by quick reply matching.
     if (Array.isArray(botMessages)) {
       botMessages.forEach((botMsg) => {
-        chatStore.addMessageToConversation(chatStore.currentConversation.uuid, botMsg)
+        chatStore.addMessageToConversation(oldUUID, botMsg)
       })
+    }
+
+    // The backend had to create the conversation on the fly (e.g. the contact
+    // was just removed from the blacklist): switch to it so the next upload or
+    // send lands in a real conversation.
+    if (data?.conversation?.uuid && data.conversation.uuid !== oldUUID) {
+      chatStore.adoptConversation(oldUUID, data.conversation, data.messages)
     }
   } catch (error) {
     // Remove failed upload message

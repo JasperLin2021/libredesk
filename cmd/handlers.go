@@ -153,8 +153,18 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	g.PUT("/api/v1/contacts/{id}", perm(handleUpdateContact, "contacts:write"))
 	g.PUT("/api/v1/contacts/{id}/block", perm(handleBlockContact, "contacts:block"))
 
+	// Online blacklist. Deliberately not permission gated: every logged in
+	// agent may block / unblock a contact from the live chat widget.
+	g.GET("/api/v1/contacts/{id}/blacklist", auth(handleGetContactBlacklist))
+	g.POST("/api/v1/contacts/{id}/blacklist", auth(handleAddContactBlacklist))
+	g.DELETE("/api/v1/contacts/{id}/blacklist", auth(handleRemoveContactBlacklist))
+	g.GET("/api/v1/blacklist/customers", auth(handleGetBlacklistCustomers))
+	g.GET("/api/v1/blacklist/logs", auth(handleGetBlacklistLogs))
+
 	// Contact notes.
 	g.GET("/api/v1/contacts/{id}/notes", perm(handleGetContactNotes, "contact_notes:read"))
+	// "回呼" (callback) – agent-initiated conversation with a contact/visitor.
+	g.POST("/api/v1/contacts/{id}/conversations", perm(handleCreateContactConversation, "conversations:write"))
 	g.POST("/api/v1/contacts/{id}/notes", perm(handleCreateContactNote, "contact_notes:write"))
 	g.DELETE("/api/v1/contacts/{id}/notes/{note_id}", perm(handleDeleteContactNote, "contact_notes:delete"))
 

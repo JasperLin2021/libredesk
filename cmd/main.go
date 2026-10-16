@@ -21,6 +21,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/authz"
 	businesshours "github.com/abhinavxd/libredesk/internal/business_hours"
 	"github.com/abhinavxd/libredesk/internal/cannedresponse"
+	"github.com/abhinavxd/libredesk/internal/blacklist"
 	"github.com/abhinavxd/libredesk/internal/knowledgebase"
 	"github.com/abhinavxd/libredesk/internal/colorlog"
 	"github.com/abhinavxd/libredesk/internal/csat"
@@ -121,6 +122,7 @@ type App struct {
 	redis            *redis.Client
 	importer         *importer.Importer
 	wsHub            *ws.Hub
+	blacklist        *blacklist.Manager
 
 	// Global state that stores data on an available app update.
 	update *AppUpdate
@@ -247,6 +249,7 @@ func main() {
 		aiAgent                     = initAIAgent(db, i18n, ai, conversation, media, settings, user, notifier, rdb)
 		autoassigner                = initAutoAssigner(team, user, conversation)
 		rateLimiter                 = initRateLimit(rdb)
+		blacklist                   = initBlacklist(db, i18n)
 	)
 
 	wsHub.SetConversationStore(conversation)
@@ -312,6 +315,7 @@ func main() {
 		role:             initRole(db, i18n),
 		tag:              initTag(db, i18n),
 		macro:            initMacro(db, i18n),
+		blacklist:        blacklist,
 		ai:               ai,
 		aiAgent:          aiAgent,
 		importer:         initImporter(i18n),

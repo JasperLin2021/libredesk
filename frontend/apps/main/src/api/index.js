@@ -651,6 +651,20 @@ const createContactNote = (id, data) => http.post(`/api/v1/contacts/${id}/notes`
 })
 const deleteContactNote = (id, noteId) => http.delete(`/api/v1/contacts/${id}/notes/${noteId}`)
 const getActivityLogs = (params) => http.get('/api/v1/activity-logs', { params })
+// Online blacklist ("在线黑名单").
+const getContactBlacklist = (id) => http.get(`/api/v1/contacts/${id}/blacklist`)
+const addContactBlacklist = (id, data) => http.post(`/api/v1/contacts/${id}/blacklist`, data, {
+  headers: {
+    'Content-Type': 'application/json'
+  }
+})
+const removeContactBlacklist = (id) => http.delete(`/api/v1/contacts/${id}/blacklist`)
+const getBlacklistCustomers = (params) =>
+  http.get('/api/v1/blacklist/customers', { params, abortOnRoute: true })
+const getBlacklistLogs = (params) => http.get('/api/v1/blacklist/logs', { params, abortOnRoute: true })
+// "回呼" / callback – agent-initiated conversation with a contact/visitor.
+const createContactConversation = (id) =>
+  http.post(`/api/v1/contacts/${id}/conversations`, {})
 const getWebhooksCompact = () => http.get('/api/v1/webhooks/compact')
 const getWebhooks = () => http.get('/api/v1/webhooks')
 const getWebhook = (id) => http.get(`/api/v1/webhooks/${id}`)
@@ -930,6 +944,12 @@ export default {
   createContactNote,
   deleteContactNote,
   getActivityLogs,
+  getContactBlacklist,
+  addContactBlacklist,
+  removeContactBlacklist,
+  getBlacklistCustomers,
+  getBlacklistLogs,
+  createContactConversation,
   getWebhooksCompact,
   getWebhooks,
   getWebhook,

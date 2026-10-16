@@ -78,6 +78,18 @@ const routes = [
             name: 'history-search',
             component: () => import('@main/views/history/HistorySearchView.vue'),
             meta: { titleKey: 'globals.terms.search', hidePageHeader: true }
+          },
+          {
+            path: 'customers',
+            name: 'history-customers',
+            component: () => import('@main/views/history/HistoryCustomersView.vue'),
+            meta: { titleKey: 'history.customer.title', hidePageHeader: true }
+          },
+          {
+            path: 'customer-logs',
+            name: 'history-customer-logs',
+            component: () => import('@main/views/history/HistoryBlacklistLogsView.vue'),
+            meta: { titleKey: 'history.logs.title', hidePageHeader: true }
           }
         ]
       },

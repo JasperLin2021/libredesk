@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	amodels "github.com/abhinavxd/libredesk/internal/auth/models"
 	"github.com/abhinavxd/libredesk/internal/envelope"
@@ -291,4 +292,83 @@ func handleBlockContact(r *fastglue.Request) error {
 		return sendErrorEnvelope(r, err)
 	}
 	return r.SendEnvelope(contact)
+}
+
+// handleCreateContactConversation proactively opens a conversation with a
+// contact or visitor so an agent can reach out ("回呼" / callback). It reuses
+// the inbox of the customer's most recent conversation when possible and
+// falls back to the first enabled inbox otherwise. The new conversation is
+// assigned to the calling agent and returned to the caller so the UI can
+// navigate straight to the conversation detail.
+func handleCreateContactConversation(r *fastglue.Request) error {
+	var (
+		app   = r.Context.(*App)
+		auser = r.RequestCtx.UserValue("user").(amodels.User)
+		id, _ = strconv.Atoi(r.RequestCtx.UserValue("id").(string))
+	)
+	if id <= 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, app.i18n.T("globals.messages.somethingWentWrong"), nil, envelope.InputError)
+	}
+
+	contact, err := app.user.GetContactOrVisitor(id, "")
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+
+	// Prefer the customer's last channel; otherwise fall back to the first
+	// enabled inbox.
+	inboxID, err := app.conversation.GetContactLastInboxID(contact.ID)
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	if inboxID == 0 {
+		inboxes, err := app.inbox.GetAll()
+		if err != nil {
+			app.lo.Error("error listing inboxes for callback", "contact_id", contact.ID, "error", err)
+			return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+		}
+		for _, inb := range inboxes {
+			if inb.Enabled {
+				inboxID = inb.ID
+				break
+			}
+		}
+	}
+	if inboxID == 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusUnprocessableEntity, app.i18n.Ts("globals.messages.empty", "name", "enabled inbox"), nil, envelope.InputError)
+	}
+
+	// Create the conversation with no first message; the agent writes the
+	// opening reply in the conversation view.
+	conversationID, conversationUUID, err := app.conversation.CreateConversation(
+		contact.ID,
+		inboxID,
+		"",
+		time.Now(),
+		"",
+		false,
+		nil,
+		nil,
+		0, 0,
+	)
+	if err != nil {
+		app.lo.Error("error creating callback conversation", "contact_id", contact.ID, "inbox_id", inboxID, "error", err)
+		return sendErrorEnvelope(r, envelope.NewError(envelope.GeneralError, app.i18n.T("globals.messages.somethingWentWrong"), nil))
+	}
+	app.lo.Info("created callback conversation", "contact_id", contact.ID, "inbox_id", inboxID, "conversation_id", conversationID, "actor_id", auser.ID)
+
+	// Assign the new conversation to the calling agent so it shows up in the
+	// "我的" (assigned) list and the UI can navigate there directly.
+	agent, err := app.user.GetAgentCachedOrLoad(auser.ID)
+	if err != nil {
+		app.lo.Error("error loading agent for callback assignment", "agent_id", auser.ID, "error", err)
+	} else if err := app.conversation.UpdateConversationUserAssignee(conversationUUID, auser.ID, agent); err != nil {
+		app.lo.Error("error assigning callback conversation", "conversation_uuid", conversationUUID, "agent_id", auser.ID, "error", err)
+	}
+
+	conv, err := app.conversation.GetConversation(0, conversationUUID, "")
+	if err != nil {
+		return sendErrorEnvelope(r, err)
+	}
+	return r.SendEnvelope(conv)
 }

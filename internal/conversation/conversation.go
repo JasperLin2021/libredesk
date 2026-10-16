@@ -448,6 +448,7 @@ type queries struct {
 	GetContactChatConversations         *sqlx.Stmt `query:"get-contact-chat-conversations"`
 	GetChatConversation                 *sqlx.Stmt `query:"get-chat-conversation"`
 	GetContactPreviousConversations     *sqlx.Stmt `query:"get-contact-previous-conversations"`
+	GetContactLastInboxID               *sqlx.Stmt `query:"get-contact-last-inbox-id"`
 	GetContactConversationsForAI        *sqlx.Stmt `query:"get-contact-conversations-for-ai"`
 	GetConversationsByContactEmailForAI *sqlx.Stmt `query:"get-conversations-by-contact-email-for-ai"`
 	GetConversationParticipants         *sqlx.Stmt `query:"get-conversation-participants"`
@@ -605,6 +606,21 @@ func (c *Manager) GetContactPreviousConversations(contactID int, limit int) ([]m
 		return conversations, envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
 	}
 	return conversations, nil
+}
+
+// GetContactLastInboxID returns the inbox of the contact's most recent
+// conversation, restricted to inboxes that still exist and are enabled. It
+// returns 0 when the contact has no usable conversation yet.
+func (c *Manager) GetContactLastInboxID(contactID int) (int, error) {
+	var inboxID int
+	if err := c.q.GetContactLastInboxID.Get(&inboxID, contactID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		c.lo.Error("error fetching contact last inbox", "contact_id", contactID, "error", err)
+		return 0, envelope.NewError(envelope.GeneralError, c.i18n.T("globals.messages.somethingWentWrong"), nil)
+	}
+	return inboxID, nil
 }
 
 // GetContactConversationsForAI returns recent conversations of a contact, excluding excludeID.

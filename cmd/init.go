@@ -22,6 +22,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/automation"
 	businesshours "github.com/abhinavxd/libredesk/internal/business_hours"
 	"github.com/abhinavxd/libredesk/internal/cannedresponse"
+	"github.com/abhinavxd/libredesk/internal/blacklist"
 	"github.com/abhinavxd/libredesk/internal/knowledgebase"
 	"github.com/abhinavxd/libredesk/internal/colorlog"
 	contextlink "github.com/abhinavxd/libredesk/internal/context_link"
@@ -348,6 +349,19 @@ func initCannedResponse(db *sqlx.DB, i18n *i18n.I18n) *cannedresponse.Manager {
 	})
 	if err != nil {
 		log.Fatalf("error initializing canned response manager: %v", err)
+	}
+	return mgr
+}
+
+// initBlacklist inits the online blacklist manager.
+func initBlacklist(db *sqlx.DB, i18n *i18n.I18n) *blacklist.Manager {
+	mgr, err := blacklist.New(blacklist.Opts{
+		DB:   db,
+		Lo:   initLogger("blacklist"),
+		I18n: i18n,
+	})
+	if err != nil {
+		log.Fatalf("error initializing blacklist manager: %v", err)
 	}
 	return mgr
 }

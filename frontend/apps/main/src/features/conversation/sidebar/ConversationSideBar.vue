@@ -9,6 +9,10 @@
 
     <TabsContent value="details" class="mt-0">
       <ConversationSideBarContact class="p-4" />
+      <!-- Online blacklist: sits directly under the customer info card. -->
+      <div class="px-4 pb-3">
+        <BlacklistAction :contact-id="contactId" :key="contactId" />
+      </div>
       <Accordion type="multiple" collapsible v-model="accordionState">
         <AccordionItem value="actions" class="accordion-item">
           <AccordionTrigger class="accordion-trigger">
@@ -199,6 +203,7 @@ import ContactNotes from '@/features/contact/ContactNotes.vue'
 import PreviousConversations from '@/features/conversation/sidebar/PreviousConversations.vue'
 import ConversationSideBarPageVisits from '@/features/conversation/sidebar/ConversationSideBarPageVisits.vue'
 import SelectComboBox from '@main/components/combobox/SelectCombobox.vue'
+import BlacklistAction from '@/features/blacklist/BlacklistAction.vue'
 import { TAG_ACTION } from '@/constants/conversation'
 import api from '../../../api'
 
@@ -275,6 +280,10 @@ const applySuggestedTag = (tag) => {
 }
 
 const priorityOptions = computed(() => conversationStore.priorityOptions)
+
+// Contact of the currently previewed conversation, whose blacklist state the
+// action button below the customer info card reflects.
+const contactId = computed(() => conversationStore.current?.contact?.id || 0)
 
 const fetchTags = async () => {
   await tagStore.fetchTags()

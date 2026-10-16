@@ -278,5 +278,21 @@ export const historyNavItems = [
         icon: 'Search'
       }
     ]
+  },
+  {
+    titleKey: 'globals.terms.customer',
+    icon: 'UsersRound',
+    children: [
+      {
+        titleKey: 'history.customer.title',
+        href: '/history/customers',
+        icon: 'UserRound'
+      },
+      {
+        titleKey: 'history.logs.title',
+        href: '/history/customer-logs',
+        icon: 'ScrollText'
+      }
+    ]
   }
 ]

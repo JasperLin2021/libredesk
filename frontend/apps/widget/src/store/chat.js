@@ -290,6 +290,22 @@ export const useChatStore = defineStore('chat', () => {
     conversations.value.push(conversation)
   }
 
+  // Switches from a stale conversation (the placeholder a blacklisted contact is
+  // handed) to the real one the backend just created, so subsequent sends keep
+  // working. The server messages replace the locally cached ones.
+  const adoptConversation = (oldUUID, conversation, messages = []) => {
+    if (!conversation?.uuid) return
+    if (oldUUID && oldUUID !== conversation.uuid) {
+      messageCache.purgeConversation(oldUUID)
+    }
+    addConversationToList(conversation)
+    setCurrentConversation(conversation)
+    if (Array.isArray(messages) && messages.length > 0) {
+      replaceMessages(messages)
+    }
+    messageCacheVersion.value++
+  }
+
   return {
     // State
     messageCache,
@@ -319,6 +335,7 @@ export const useChatStore = defineStore('chat', () => {
     updateCurrentConversationLastSeen,
     updateConversationListLastMessage,
     updateCurrentConversation,
-    addConversationToList
+    addConversationToList,
+    adoptConversation
   }
 })

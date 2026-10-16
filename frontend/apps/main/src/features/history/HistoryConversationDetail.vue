@@ -161,6 +161,11 @@
             </dd>
           </div>
         </dl>
+
+        <!-- Online blacklist: sits directly under the contact info block. -->
+        <div v-if="contact?.id" class="pt-1">
+          <BlacklistAction :key="contact.id" :contact-id="contact.id" />
+        </div>
       </aside>
     </div>
   </div>
@@ -174,6 +179,7 @@ import { parseISO, format } from 'date-fns'
 import api from '@main/api'
 import { Avatar, AvatarImage, AvatarFallback } from '@shared-ui/components/ui/avatar'
 import { Spinner } from '@shared-ui/components/ui/spinner'
+import BlacklistAction from '@/features/blacklist/BlacklistAction.vue'
 
 const { t } = useI18n()
 

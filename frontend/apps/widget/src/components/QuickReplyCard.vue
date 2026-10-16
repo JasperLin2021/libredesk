@@ -34,7 +34,6 @@
 <script setup>
 import { computed } from 'vue'
 import { Headset } from 'lucide-vue-next'
-import { useWidgetStore } from '../store/widget.js'
 import { useUserStore } from '../store/user.js'
 import { useChatStore } from '../store/chat.js'
 import { handleHTTPError } from '@shared-ui/utils/http.js'
@@ -51,7 +50,6 @@ const emit = defineEmits(['error'])
 
 const chatStore = useChatStore()
 const userStore = useUserStore()
-const widgetStore = useWidgetStore()
 
 const items = computed(() => props.message?.meta?.items || [])
 const transferKeyword = computed(() => props.message?.meta?.transfer_keyword || '')
@@ -102,6 +100,13 @@ const sendQuickReply = async (value) => {
       botMessages.forEach((botMsg) => {
         chatStore.addMessageToConversation(conversationUUID, botMsg)
       })
+    }
+
+    // The backend had to create the conversation on the fly (e.g. the contact
+    // was just removed from the blacklist): switch to it so the next click or
+    // send lands in a real conversation.
+    if (data?.conversation?.uuid && data.conversation.uuid !== conversationUUID) {
+      chatStore.adoptConversation(conversationUUID, data.conversation, data.messages)
     }
 
     emit('error', '')

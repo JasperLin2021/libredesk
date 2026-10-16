@@ -1218,3 +1218,16 @@ WHERE c.assigned_user_id IS NOT NULL
        JOIN users u ON u.id = cm.sender_id
        WHERE cm.conversation_id = c.id AND cm.sender_type = 'agent' AND u.email <> 'System'
       ) < NOW() - $1::interval;
+
+-- name: get-contact-last-inbox-id
+-- Most recent inbox a contact used, restricted to inboxes that still exist and
+-- are enabled. Used by the "回呼" (callback) action so the new conversation
+-- reuses the customer's last channel instead of an arbitrary one.
+SELECT c.inbox_id
+FROM conversations c
+JOIN inboxes i ON i.id = c.inbox_id
+WHERE c.contact_id = $1
+  AND i.deleted_at IS NULL
+  AND i.enabled = TRUE
+ORDER BY c.created_at DESC, c.id DESC
+LIMIT 1;
