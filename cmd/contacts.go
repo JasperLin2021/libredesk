@@ -350,6 +350,7 @@ func handleCreateContactConversation(r *fastglue.Request) error {
 		nil,
 		nil,
 		0, 0,
+		false, /** silent **/
 	)
 	if err != nil {
 		app.lo.Error("error creating callback conversation", "contact_id", contact.ID, "inbox_id", inboxID, "error", err)

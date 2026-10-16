@@ -127,13 +127,16 @@ func (c *Manager) SetAIAgent(e AIAgentEngine) {
 
 // SendAutoReply sends a message on behalf of the system user. It implements the
 // quickreply.ConversationService interface.
-func (c *Manager) SendAutoReply(inboxID, contactID int, conversationUUID, content string, metaMap map[string]any) (models.Message, error) {
+// SendAutoReply sends a message on behalf of the system user. When silent is
+// true the new-message websocket broadcast is skipped so the conversation is
+// not surfaced in the agent open list by automatic bot replies.
+func (c *Manager) SendAutoReply(inboxID, contactID int, conversationUUID, content string, metaMap map[string]any, silent bool) (models.Message, error) {
 	systemUser, err := c.userStore.GetSystemUser()
 	if err != nil {
 		c.lo.Error("error fetching system user for auto reply", "error", err)
 		return models.Message{}, err
 	}
-	return c.QueueReply(nil, inboxID, systemUser.ID, contactID, conversationUUID, content, nil, nil, nil, metaMap)
+	return c.QueueReply(nil, inboxID, systemUser.ID, contactID, conversationUUID, content, nil, nil, nil, metaMap, silent)
 }
 
 // SendReplyAsUser sends a message on behalf of the given agent user. It is used
@@ -141,7 +144,7 @@ func (c *Manager) SendAutoReply(inboxID, contactID int, conversationUUID, conten
 // over the conversation, so the widget renders their avatar and name. It
 // implements the quickreply.ConversationService interface.
 func (c *Manager) SendReplyAsUser(userID, inboxID, contactID int, conversationUUID, content string, metaMap map[string]any) (models.Message, error) {
-	return c.QueueReply(nil, inboxID, userID, contactID, conversationUUID, content, nil, nil, nil, metaMap)
+	return c.QueueReply(nil, inboxID, userID, contactID, conversationUUID, content, nil, nil, nil, metaMap, false)
 }
 
 // CloseConversation closes the given conversation on behalf of the system user.
@@ -524,7 +527,11 @@ type queries struct {
 
 // CreateConversation creates a new conversation. If maxConversations > 0, the insert is
 // atomically rejected when the contact already has >= maxConversations in the given window.
-func (c *Manager) CreateConversation(contactID, inboxID int, lastMessage string, lastMessageAt time.Time, subject string, appendRefNumToSubject bool, meta, customAttributes map[string]any, maxConversations int, rateLimitWindow time.Duration) (int, string, error) {
+// When silent is true the new-conversation websocket broadcast is skipped so the
+// conversation does not surface in the agent open list. Callers that expect the
+// conversation to remain invisible until the visitor requests a human agent
+// should pass silent=true and explicitly broadcast later.
+func (c *Manager) CreateConversation(contactID, inboxID int, lastMessage string, lastMessageAt time.Time, subject string, appendRefNumToSubject bool, meta, customAttributes map[string]any, maxConversations int, rateLimitWindow time.Duration, silent bool) (int, string, error) {
 	var (
 		id     int
 		uuid   string
@@ -560,6 +567,9 @@ func (c *Manager) CreateConversation(contactID, inboxID int, lastMessage string,
 		}
 		c.lo.Error("error inserting new conversation into the DB", "error", err)
 		return 0, "", err
+	}
+	if silent {
+		return id, uuid, nil
 	}
 	if item, err := c.GetConversationListItem(uuid); err == nil {
 		c.BroadcastNewConversation(&item)
@@ -1828,6 +1838,7 @@ func (m *Manager) ApplyAction(action amodels.RuleAction, conv models.Conversatio
 			nil,
 			nil,
 			map[string]any{"is_automated": true},
+			false,
 		)
 		if err != nil {
 			return fmt.Errorf("sending reply: %w", err)
@@ -2074,7 +2085,7 @@ func (m *Manager) SendCSATReply(actorUserID int, conversation models.Conversatio
 	}
 
 	// Only send CSAT to contact.
-	_, err = m.QueueReply(nil /**media**/, conversation.InboxID, actorUserID, conversation.ContactID, conversation.UUID, message, []string{conversation.Contact.Email.String}, nil, nil, meta)
+	_, err = m.QueueReply(nil /**media**/, conversation.InboxID, actorUserID, conversation.ContactID, conversation.UUID, message, []string{conversation.Contact.Email.String}, nil, nil, meta, false)
 	if err != nil {
 		m.lo.Error("error sending CSAT reply", "conversation_uuid", conversation.UUID, "error", err)
 		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
@@ -2236,6 +2247,14 @@ func (c *Manager) makeConversationsListQuery(viewingUserID, userID int, teamIDs 
 	// (assigned, unassigned, all, team, mentioned, and saved views). Only
 	// conversations from registered contacts are surfaced in the agent UI.
 	whereClause += " AND users.type <> 'visitor'"
+
+	// Hide live-chat conversations until the visitor explicitly asks for a
+	// human agent. The frontend normally relies on WS push suppression +
+	// autoassigner filtering, but agents can also GET the list directly
+	// (or browser fetch on page load). This clause is the final backstop so
+	// "Open" / "Unassigned" / "All" tabs never surface a bot session before
+	// the visitor clicks "talk to a human".
+	whereClause += " AND COALESCE(conversations.meta->>'bot_human_requested', 'false') = 'true'"
 
 	baseQuery = fmt.Sprintf(baseQuery, whereClause)
 

@@ -343,12 +343,46 @@ func (e *Engine) EvaluateConversationUpdateRulesByID(conversationID int, convers
 // handleNewConversation handles new conversation events.
 func (e *Engine) handleNewConversation(conversation cmodels.Conversation) {
 	e.lo.Debug("handling new conversation for automation rule evaluation", "uuid", conversation.UUID)
+	// Live-chat visitors can create a conversation just by opening the widget
+	// (the bot greets them first). Until the visitor explicitly asks for a
+	// human agent (the quick reply layer sets ConversationMetaBotHumanRequested
+	// at that point) the conversation must stay invisible to agents. So if
+	// this is a live-chat conversation that has not requested a human yet, we
+	// skip automation evaluation – otherwise any "auto-assign" rule would
+	// reassign the conversation and trigger a NEW_CONVERSATION broadcast,
+	// surfacing it in the agent open list before the visitor has even
+	// confirmed they want a human.
+	if e.shouldDeferLiveChatAutomation(conversation) {
+		e.lo.Info("skipping new-conversation automation for live-chat conversation that has not requested a human", "uuid", conversation.UUID)
+		return
+	}
 	rules := e.filterRulesByType(models.RuleTypeNewConversation, "")
 	if len(rules) == 0 {
 		e.lo.Info("no rules to evaluate for new conversation rule evaluation", "uuid", conversation.UUID)
 		return
 	}
 	e.evalConversationRules(rules, conversation, nil)
+}
+
+// shouldDeferLiveChatAutomation reports whether the new-conversation event
+// comes from a live-chat channel and the visitor has not yet asked for a
+// human. The deferral is live-chat only; email/other channels create real
+// customer-initiated conversations and must be evaluated immediately.
+func (e *Engine) shouldDeferLiveChatAutomation(conversation cmodels.Conversation) bool {
+	if conversation.InboxChannel != "livechat" {
+		return false
+	}
+	if len(conversation.Meta) == 0 {
+		return true
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(conversation.Meta, &meta); err != nil {
+		// If meta can't be parsed, err on the side of evaluation rather than
+		// silently dropping the automation run.
+		return false
+	}
+	requested, _ := meta[cmodels.ConversationMetaBotHumanRequested].(bool)
+	return !requested
 }
 
 // handleUpdateConversation handles update conversation events with specific eventType.

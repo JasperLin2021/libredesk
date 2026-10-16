@@ -465,7 +465,7 @@ func (m *Manager) SendPrivateNote(media []mmodels.Media, senderID int, conversat
 		Private:          true,
 		Media:            media,
 	}
-	if err := m.InsertMessage(&message); err != nil {
+	if err := m.InsertMessage(&message, false); err != nil {
 		return models.Message{}, err
 	}
 
@@ -493,7 +493,7 @@ func (m *Manager) CreateContactMessage(media []mmodels.Media, contactID int, con
 		Private:          false,
 		Media:            media,
 	}
-	if err := m.InsertMessage(&message); err != nil {
+	if err := m.InsertMessage(&message, false); err != nil {
 		return models.Message{}, err
 	}
 
@@ -506,7 +506,8 @@ func (m *Manager) CreateContactMessage(media []mmodels.Media, contactID int, con
 }
 
 // QueueReply queues a reply message in a conversation.
-func (m *Manager) QueueReply(media []mmodels.Media, inboxID, senderID, contactID int, conversationUUID, content string, to, cc, bcc []string, metaMap map[string]interface{}) (models.Message, error) {
+// When silent is true the new-message websocket broadcast is skipped.
+func (m *Manager) QueueReply(media []mmodels.Media, inboxID, senderID, contactID int, conversationUUID, content string, to, cc, bcc []string, metaMap map[string]interface{}, silent bool) (models.Message, error) {
 	var (
 		message = models.Message{}
 	)
@@ -574,14 +575,18 @@ func (m *Manager) QueueReply(media []mmodels.Media, inboxID, senderID, contactID
 		MessageReceiverID: contactID,
 		Meta:              metaJSON,
 	}
-	if err := m.InsertMessage(&message); err != nil {
+	if err := m.InsertMessage(&message, silent); err != nil {
 		return models.Message{}, err
 	}
 	return message, nil
 }
 
 // InsertMessage inserts a message and attaches the media to the message.
-func (m *Manager) InsertMessage(message *models.Message) error {
+// When silent is true the new-message websocket broadcast is skipped. This is
+// used by live-chat flows where the conversation exists but the visitor has
+// not yet requested a human agent (e.g. welcome / topic auto replies and
+// visitor messages that have not been classified as a transfer request).
+func (m *Manager) InsertMessage(message *models.Message, silent bool) error {
 	if message.Private {
 		message.Status = models.MessageStatusSent
 	}
@@ -658,7 +663,9 @@ func (m *Manager) InsertMessage(message *models.Message) error {
 		} else {
 			m.lo.Error("error fetching conversation list item for broadcast", "uuid", message.ConversationUUID, "error", err)
 		}
-		m.BroadcastNewMessage(message, convItem, lastMessage)
+		if !silent {
+			m.BroadcastNewMessage(message, convItem, lastMessage)
+		}
 	}
 
 	// Refetch the message to get all fields populated (e.g., author, media URLs).
@@ -752,7 +759,7 @@ func (m *Manager) InsertConversationActivity(activityType, conversationUUID, new
 		Meta:             meta,
 	}
 
-	if err := m.InsertMessage(&message); err != nil {
+	if err := m.InsertMessage(&message, false); err != nil {
 		m.lo.Error("error inserting activity message", "error", err)
 		return envelope.NewError(envelope.GeneralError, m.i18n.T("globals.messages.somethingWentWrong"), nil)
 	}
@@ -868,7 +875,7 @@ func (m *Manager) ProcessIncomingMessage(in models.IncomingMessage) (models.Mess
 	}
 
 	// Insert message. On failure, delete the conversation if it was just created for this message.
-	if err = m.InsertMessage(&msg); err != nil {
+	if err = m.InsertMessage(&msg, false); err != nil {
 		m.lo.Error("error inserting incoming message", "message_source_id", in.SourceID.String, "conversation_uuid", conversationUUID, "is_new", isNewConversation, "error", err)
 		if isNewConversation && conversationUUID != "" {
 			if delErr := m.DeleteConversation(conversationUUID); delErr != nil {
@@ -987,14 +994,31 @@ func (m *Manager) isVisitorUpgradeSafe(conversation models.Conversation) bool {
 }
 
 // ProcessIncomingLiveChatMessage handles incoming live chat messages.
-func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message) (models.Message, []models.Message, error) {
+// The silent flag suppresses the new-message websocket broadcast so the
+// conversation does not surface in the agent open list while the visitor
+// is still chatting with the bot. Once the visitor has explicitly requested
+// a human agent (ConversationMetaBotHumanRequested meta flag) every new
+// visitor message is broadcast again, so agents still see follow-up
+// questions after they have taken over the conversation.
+func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message, silent bool) (models.Message, []models.Message, error) {
 	// Upload message attachments.
 	if err := m.uploadMessageAttachments(&msg); err != nil {
 		return models.Message{}, nil, fmt.Errorf("uploading message attachments: %w", err)
 	}
 
+	// If the conversation already requested a human agent, stop suppressing
+	// the broadcast – the conversation has surfaced and follow-up messages
+	// from the visitor should keep updating the agent side.
+	if silent {
+		if convMeta, err := m.GetConversationMeta(msg.ConversationUUID); err == nil {
+			if requested, _ := convMeta[models.ConversationMetaBotHumanRequested].(bool); requested {
+				silent = false
+			}
+		}
+	}
+
 	// Insert message.
-	if err := m.InsertMessage(&msg); err != nil {
+	if err := m.InsertMessage(&msg, silent); err != nil {
 		return models.Message{}, nil, err
 	}
 
@@ -1236,6 +1260,7 @@ func (m *Manager) findOrCreateConversation(in models.IncomingMessage) (int, stri
 			nil,   /** customer attributes **/
 			0,     /** max conversation **/
 			0,     /** rate limit window **/
+			false, /** silent - inbound channels are real customer contact, must broadcast **/
 		)
 		if err != nil || conversationID == 0 {
 			return 0, "", false, err

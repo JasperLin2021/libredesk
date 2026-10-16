@@ -195,7 +195,7 @@ func (m *Manager) sendContinuityEmail(conv models.ContinuityConversation, maxMes
 	}
 
 	// Insert message into database
-	if err := m.InsertMessage(&message); err != nil {
+	if err := m.InsertMessage(&message, false); err != nil {
 		return fmt.Errorf("inserting continuity message: %w", err)
 	}
 

@@ -1440,6 +1440,7 @@
   "placeholders.startConversation": "Start conversation",
   "placeholders.tellUsAboutYourself": "Tell us about yourself",
   "placeholders.webhookEventName": "e.g. priority.escalated",
+  "replyBox.assignBeforeSend": "This conversation isn't assigned yet. Assign it before sending a message.",
   "replyBox.bcc": "BCC",
   "replyBox.contactEmailMissing": "Contact email not in recipients",
   "replyBox.contactEmailMissingDescription": "The contact's email ({email}) is not included in to, cc, or bcc. The contact won't receive this reply.",

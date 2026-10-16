@@ -356,6 +356,13 @@ export const useConversationStore = defineStore('conversation', () => {
     return Object.keys(conversation.data || {}).length > 0
   })
 
+  // A conversation has to be claimed by an agent or a team before anyone can
+  // send messages in it. Conversations created by a contact start out
+  // unassigned and stay read-only for agents until they are assigned.
+  const isCurrentConversationAssigned = computed(() => {
+    return Boolean(current.value?.assigned_user_id || current.value?.assigned_team_id)
+  })
+
   watchEffect(async () => {
     const _ = messages.version // eslint-disable-line no-unused-vars
     const conv = conversation.data
@@ -1188,6 +1195,7 @@ export const useConversationStore = defineStore('conversation', () => {
     conversationMessages,
     currentConversationHasMoreMessages,
     isConversationOpen,
+    isCurrentConversationAssigned,
     current,
     currentContactName,
     currentTo,

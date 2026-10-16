@@ -23,8 +23,11 @@ import (
 // quick reply module to send automatic replies and read/update conversation
 // metadata. It is implemented by the conversation manager.
 type ConversationService interface {
-	// SendAutoReply sends a message on behalf of the system user.
-	SendAutoReply(inboxID, contactID int, conversationUUID, content string, metaMap map[string]any) (cmodels.Message, error)
+	// SendAutoReply sends a message on behalf of the system user. The silent
+	// flag controls whether the new-message websocket broadcast is skipped,
+	// letting the quick reply module decide whether bot messages should
+	// surface the conversation in the agent open list.
+	SendAutoReply(inboxID, contactID int, conversationUUID, content string, metaMap map[string]any, silent bool) (cmodels.Message, error)
 	// GetConversationMeta returns the conversation's meta as a map.
 	GetConversationMeta(conversationUUID string) (map[string]any, error)
 	// UpdateConversationMeta merges the given keys into the conversation's meta.
@@ -44,6 +47,11 @@ type ConversationService interface {
 	// CloseConversation closes the given conversation on behalf of the system
 	// user. Closing a conversation triggers the configured closed reply.
 	CloseConversation(uuid string) error
+	// BroadcastNewConversation pushes a new-conversation websocket event so the
+	// conversation surfaces in the agent open list. Used by the transfer
+	// request flow to notify agents only after the visitor explicitly asks
+	// for a human.
+	BroadcastNewConversationByUUID(conversationUUID string) error
 }
 
 var (
@@ -562,7 +570,9 @@ func (m *Manager) SendWelcomeReply(conversation cmodels.Conversation) error {
 		"items":            items,
 		"transfer_keyword": cfg.TransferKeyword,
 	}
-	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, content, metaMap); err != nil {
+	// Welcome message is a bot auto-reply, keep the visitor's conversation
+	// hidden from the agent open list until they request a human.
+	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, content, metaMap, true); err != nil {
 		m.lo.Error("quick reply: error sending welcome auto reply", "conversation_uuid", conversation.UUID, "error", err)
 		return err
 	}
@@ -634,7 +644,7 @@ func (m *Manager) HandleIncomingMessage(conversation cmodels.Conversation, conte
 	for _, topic := range topics {
 		for _, question := range topic.Questions {
 			if question.Question == content {
-				msg, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, question.Answer, nil)
+				msg, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, question.Answer, nil, true)
 				if err != nil {
 					return nil, err
 				}
@@ -675,7 +685,7 @@ func (m *Manager) HandleUserAssigned(conversation cmodels.Conversation) error {
 			if _, err := m.conv.SendReplyAsUser(conversation.AssignedUserID.Int, conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil); err != nil {
 				m.lo.Error("error sending quick reply assigned message as agent", "conversation_uuid", conversation.UUID, "assigned_user_id", conversation.AssignedUserID.Int, "error", err)
 			}
-		} else if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil); err != nil {
+		} else if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.AssignedReply, nil, true); err != nil {
 			m.lo.Error("error sending quick reply assigned message", "conversation_uuid", conversation.UUID, "error", err)
 		}
 	}
@@ -707,7 +717,7 @@ func (m *Manager) HandleConversationClosed(conversation cmodels.Conversation) er
 		return nil
 	}
 
-	_, err = m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.ClosedReply, nil)
+	_, err = m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.ClosedReply, nil, true)
 	return err
 }
 
@@ -764,7 +774,9 @@ func (m *Manager) HandleNoReplyTimeout(conversation cmodels.Conversation) error 
 }
 
 // handleTransferRequest sends the queue reply with the current queue position
-// and marks the conversation as having requested a human agent.
+// and marks the conversation as having requested a human agent. It also
+// surfaces the conversation in the agent open list, because the visitor has
+// now explicitly asked to talk to a human.
 func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg models.InboxQuickReplyConfig) error {
 	count, err := m.conv.CountOpenUnassignedConversations()
 	if err != nil {
@@ -772,7 +784,9 @@ func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg m
 	}
 
 	metaMap := map[string]any{"type": cmodels.MessageMetaTypeQueueInfo, "count": count}
-	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.QueueReply, metaMap); err != nil {
+	// Queue reply is a bot auto-reply, keep it silent so the broadcast is
+	// driven solely by the explicit transfer event below.
+	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, cfg.QueueReply, metaMap, true); err != nil {
 		m.lo.Error("error sending quick reply queue message", "conversation_uuid", conversation.UUID, "error", err)
 	}
 
@@ -786,6 +800,15 @@ func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg m
 		if err := m.conv.UpdateConversationMeta(conversation.UUID, convMeta); err != nil {
 			m.lo.Error("error marking quick reply transfer request", "conversation_uuid", conversation.UUID, "error", err)
 		}
+	}
+
+	// The visitor just clicked "Talk to a human" – surface the conversation
+	// in the agent open list. If the conversation was previously assigned
+	// (e.g. an agent had finished a session and the visitor is asking again)
+	// the broadcast is still useful to bring the conversation back into the
+	// active queue.
+	if err := m.conv.BroadcastNewConversationByUUID(conversation.UUID); err != nil {
+		m.lo.Error("error broadcasting transfer request", "conversation_uuid", conversation.UUID, "error", err)
 	}
 
 	// Refresh queue info for all waiting conversations so the freshly created
@@ -817,6 +840,6 @@ func (m *Manager) sendTopicQuestions(conversation cmodels.Conversation, topic mo
 	if strings.TrimSpace(hintMsg) == "" {
 		hintMsg = m.i18n.T("quickReply.selectQuestion")
 	}
-	msg, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, hintMsg, metaMap)
+	msg, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, hintMsg, metaMap, true)
 	return msg, err
 }

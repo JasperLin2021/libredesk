@@ -595,6 +595,12 @@ INSERT INTO conversation_participants
 VALUES($1, (SELECT id FROM conversations WHERE uuid = $2));
 
 -- name: get-unassigned-conversations
+-- Excludes conversations that are still talking to the bot (live-chat
+-- "bot_human_requested" meta is not set or false). The autoassigner must
+-- not pick those up – the visitor has not asked for a human yet, so the
+-- conversation must stay invisible to agents until they explicitly request
+-- a transfer (handled by the quick reply layer which flips the meta and
+-- explicitly broadcasts the new conversation).
 SELECT
     c.created_at,
     c.updated_at,
@@ -603,8 +609,10 @@ SELECT
     inb.channel as inbox_channel,
     inb.name as inbox_name
 FROM conversations c
-    JOIN inboxes inb ON c.inbox_id = inb.id 
-WHERE assigned_user_id IS NULL AND assigned_team_id IS NOT NULL
+    JOIN inboxes inb ON c.inbox_id = inb.id
+WHERE assigned_user_id IS NULL
+    AND assigned_team_id IS NOT NULL
+    AND COALESCE(c.meta->>'bot_human_requested', 'false') = 'true'
 ORDER BY c.created_at ASC;
 
 -- name: add-conversation-tags

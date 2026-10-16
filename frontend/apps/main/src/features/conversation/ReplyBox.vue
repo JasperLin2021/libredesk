@@ -283,9 +283,22 @@ const hasTextContent = computed(() => {
   return textContent.value.trim().length > 0
 })
 
+// Conversations started by a contact must be assigned before an agent can send anything.
+const awaitingAssignment = computed(
+  () => conversationStore.isConversationOpen && !conversationStore.isCurrentConversationAssigned
+)
+
 const processSend = async (skipContactEmailCheck = false, skipMissingTagsCheck = false, statusToSet = null) => {
   let hasMessageSendingErrored = false
   isEditorFullscreen.value = false
+
+  if (awaitingAssignment.value) {
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      variant: 'destructive',
+      description: t('replyBox.assignBeforeSend')
+    })
+    return
+  }
 
   const html = htmlContent.value
   if (hasPendingInlineUpload(html)) return

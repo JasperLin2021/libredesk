@@ -272,7 +272,7 @@ func handleSendMessage(r *fastglue.Request) error {
 	if req.EchoID != "" {
 		meta["echo_id"] = req.EchoID
 	}
-	message, err := app.conversation.QueueReply(media, conv.InboxID, user.ID, conv.ContactID, cuuid, req.Message, req.To, req.CC, req.BCC, meta)
+	message, err := app.conversation.QueueReply(media, conv.InboxID, user.ID, conv.ContactID, cuuid, req.Message, req.To, req.CC, req.BCC, meta, false)
 	if err != nil {
 		return sendErrorEnvelope(r, err)
 	}

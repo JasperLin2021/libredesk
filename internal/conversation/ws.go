@@ -15,6 +15,19 @@ func (m *Manager) BroadcastNewConversation(conv *cmodels.ConversationListItem) {
 	m.broadcastConvToAuthorized(conv, nil)
 }
 
+// BroadcastNewConversationByUUID fetches the conversation list item and pushes
+// it as a new-conversation event. Used by flows that initially created the
+// conversation silently (e.g. widget init) and only want to surface it after
+// an explicit visitor action such as requesting a human agent.
+func (m *Manager) BroadcastNewConversationByUUID(uuid string) error {
+	item, err := m.GetConversationListItem(uuid)
+	if err != nil {
+		return err
+	}
+	m.BroadcastNewConversation(&item)
+	return nil
+}
+
 // BroadcastConvReassignment notifies the union of agents authorized under old and new assignee state, so agents losing access receive the updated payload and their frontend can filter the conv out.
 func (m *Manager) BroadcastConvReassignment(oldConv, newConv *cmodels.ConversationListItem) {
 	m.broadcastConvToAuthorized(newConv, oldConv)

@@ -83,8 +83,30 @@
       </div>
     </div>
 
+    <!-- Unassigned conversations: sending stays disabled until the conversation is claimed -->
+    <div
+      v-if="awaitingAssignment"
+      class="mb-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
+    >
+      <UserPlus class="size-4 shrink-0" />
+      <span class="flex-1">{{ t('replyBox.assignBeforeSend') }}</span>
+      <Button
+        v-if="canAssignAgent"
+        size="sm"
+        variant="outline"
+        class="h-7 shrink-0"
+        :isLoading="isAssigning"
+        @click="assignToSelf"
+      >
+        {{ t('conversation.assignSelfAction') }}
+      </Button>
+    </div>
+
     <!-- Main tiptap editor -->
-    <div class="flex-grow flex flex-col overflow-hidden">
+    <div
+      class="flex-grow flex flex-col overflow-hidden"
+      :class="{ 'opacity-60': awaitingAssignment }"
+    >
       <Editor
         ref="editorRef"
         v-model:htmlContent="htmlContent"
@@ -94,7 +116,7 @@
         :aiPrompts="aiPrompts"
         :insertContent="insertContent"
         :autoFocus="true"
-        :disabled="isDraftLoading"
+        :disabled="isDraftLoading || awaitingAssignment"
         :enableMentions="messageType === 'private_note'"
         :enableInlineImages="conversationStore.current.inbox_channel === 'email'"
         :enableKbSuggestions="messageType === 'reply'"
@@ -133,6 +155,7 @@
       :handleSend="handleSend"
       :handleSendAndSetStatus="handleSendAndSetStatus"
       :isGenerating="isGenerating"
+      :disabled="awaitingAssignment"
       :showGenerateReply="messageType !== 'private_note'"
       @emojiSelect="handleEmojiSelect"
       @generateReply="$emit('generateReply')"
@@ -144,10 +167,12 @@
 import { ref, computed, nextTick, watch } from 'vue'
 import { EMITTER_EVENTS } from '@main/constants/emitterEvents.js'
 import { MACRO_CONTEXT } from '@main/constants/conversation'
-import { Maximize2, Minimize2 } from 'lucide-vue-next'
+import { Maximize2, Minimize2, UserPlus } from 'lucide-vue-next'
 import Editor from '@main/components/editor/TextEditor.vue'
 import { hasInlineImage, hasPendingInlineUpload } from '@main/composables/useInlineImageUpload'
 import { useConversationStore } from '@main/stores/conversation'
+import { useUserStore } from '@main/stores/user'
+import { useBulkActionPermissions } from '@main/composables/useBulkActionPermissions'
 import { Input } from '@shared-ui/components/ui/input'
 import { Button } from '@shared-ui/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@shared-ui/components/ui/tabs'
@@ -258,10 +283,29 @@ const emit = defineEmits([
 ])
 
 const conversationStore = useConversationStore()
+const userStore = useUserStore()
+const { canAssignAgent } = useBulkActionPermissions()
 const emitter = useEmitter()
 const { t } = useI18n()
 const insertContent = ref(null)
 const editorRef = ref(null)
+const isAssigning = ref(false)
+
+// A conversation created by a contact is unassigned until an agent claims it;
+// until then the reply box is read-only so nobody replies outside of an assignment.
+const awaitingAssignment = computed(
+  () => conversationStore.isConversationOpen && !conversationStore.isCurrentConversationAssigned
+)
+
+const assignToSelf = async () => {
+  if (isAssigning.value) return
+  isAssigning.value = true
+  try {
+    await conversationStore.updateAssignee('user', { assignee_id: userStore.userID })
+  } finally {
+    isAssigning.value = false
+  }
+}
 
 const toggleBcc = async () => {
   showBcc.value = !showBcc.value
@@ -282,6 +326,7 @@ const enableSend = computed(() => {
   const html = htmlContent.value
   return (
     !hasPendingInlineUpload(html) &&
+    !awaitingAssignment.value &&
     (textContent.value.trim().length > 0 ||
       hasInlineImage(html) ||
       conversationStore.getMacro('reply')?.actions?.length > 0 ||
@@ -314,6 +359,13 @@ const validateEmails = async () => {
 }
 
 const validateBeforeSend = async () => {
+  if (awaitingAssignment.value) {
+    emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {
+      variant: 'destructive',
+      description: t('replyBox.assignBeforeSend')
+    })
+    return false
+  }
   await validateEmails()
   if (emailErrors.value.length > 0) {
     emitter.emit(EMITTER_EVENTS.SHOW_TOAST, {

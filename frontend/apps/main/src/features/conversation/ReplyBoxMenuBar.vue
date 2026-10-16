@@ -26,6 +26,7 @@
         variant="outline"
         @click="triggerFileUpload"
         :pressed="false"
+        :disabled="disabled"
       >
         <Paperclip class="h-4 w-4" />
       </Toggle>
@@ -34,6 +35,7 @@
         variant="outline"
         @click="toggleEmojiPicker"
         :pressed="isEmojiPickerVisible"
+        :disabled="disabled"
       >
         <Smile class="h-4 w-4" />
       </Toggle>
@@ -42,7 +44,7 @@
         class="px-2 py-2 border-0"
         variant="outline"
         :pressed="false"
-        :disabled="isGenerating"
+        :disabled="disabled || isGenerating"
         :title="$t('replyBox.generateReply')"
         @click="emit('generateReply')"
       >
@@ -120,6 +122,8 @@ defineProps({
   isSending: Boolean,
   isGenerating: Boolean,
   enableSend: Boolean,
+  // Set when the conversation cannot be replied to yet (e.g. not assigned).
+  disabled: Boolean,
   handleSend: Function,
   handleSendAndSetStatus: Function,
   showSendButton: {

@@ -1201,6 +1201,7 @@
   "placeholders.selectValue": "选择值",
   "placeholders.startConversation": "开始会话",
   "placeholders.tellUsAboutYourself": "向我们介绍一下您自己",
+  "replyBox.assignBeforeSend": "该会话尚未分配，请先分配后再发送消息。",
   "replyBox.bcc": "密送",
   "replyBox.contactEmailMissing": "联系人电子邮件不在收件人中",
   "replyBox.contactEmailMissingDescription": "联系人的电子邮件 ({email}) 未包含在收件人、抄送或密送中。联系人将不会收到此回复。",

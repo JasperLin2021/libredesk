@@ -422,6 +422,7 @@ func handleChatInit(r *fastglue.Request) error {
 			conversationAttrs,
 			maxChatConversationsPerContact,
 			chatConversationRateLimitWindow,
+			true, /** silent - do not surface in agent open list until visitor requests human **/
 		)
 		if err != nil {
 			if envErr, ok := err.(envelope.Error); ok && envErr.ErrorType == envelope.RateLimitError {
@@ -444,15 +445,15 @@ func handleChatInit(r *fastglue.Request) error {
 				ContentType:      cmodels.ContentTypeText,
 				Private:          false,
 			}
-			if err := app.conversation.InsertMessage(&message); err != nil {
-				// Clean up conversation if message insert fails.
-				if err := app.conversation.DeleteConversation(conversationUUID); err != nil {
-					app.lo.Error("error deleting conversation after message insert failure", "conversation_uuid", conversationUUID, "error", err)
-					return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
-				}
-				app.lo.Error("error inserting initial message", "conversation_uuid", conversationUUID, "error", err)
-				return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
-			}
+			if err := app.conversation.InsertMessage(&message, true /** silent - widget init pre-transfer **/); err != nil {
+						// Clean up conversation if message insert fails.
+						if err := app.conversation.DeleteConversation(conversationUUID); err != nil {
+							app.lo.Error("error deleting conversation after message insert failure", "conversation_uuid", conversationUUID, "error", err)
+							return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
+						}
+						app.lo.Error("error inserting initial message", "conversation_uuid", conversationUUID, "error", err)
+						return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
+					}
 		}
 
 		// Process post-message hooks for the new conversation (welcome reply, webhooks, automation).
@@ -806,7 +807,7 @@ func handleChatSendMessage(r *fastglue.Request) error {
 		Private:          false,
 	}
 	var botMessages []cmodels.Message
-	if message, botMessages, err = app.conversation.ProcessIncomingLiveChatMessage(message); err != nil {
+	if message, botMessages, err = app.conversation.ProcessIncomingLiveChatMessage(message, true /** silent - widget visitor message pre-transfer **/); err != nil {
 		app.lo.Error("error processing incoming message", "conversation_uuid", conversationUUID, "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 	}
@@ -952,7 +953,7 @@ func handleWidgetMediaUpload(r *fastglue.Request) error {
 
 	// Process the incoming message with attachment.
 	var botMessages []cmodels.Message
-	if message, botMessages, err = app.conversation.ProcessIncomingLiveChatMessage(message); err != nil {
+	if message, botMessages, err = app.conversation.ProcessIncomingLiveChatMessage(message, true /** silent - widget attachment pre-transfer **/); err != nil {
 		app.lo.Error("error processing incoming message with attachment", "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, app.i18n.T("globals.messages.errorSendingMessage"), nil, envelope.GeneralError)
 	}
@@ -1084,17 +1085,18 @@ func resolveWidgetConversationUUID(app *App, r *fastglue.Request, conversationUU
 	// No conversation yet: create one, mirroring handleChatInit, and replay the
 	// welcome message (with topic cards) the visitor has been looking at.
 	_, newUUID, err := app.conversation.CreateConversation(
-		contactID,
-		inbox.ID,
-		"",
-		time.Now(),
-		"",
-		false,
-		map[string]any{},
-		nil,
-		maxChatConversationsPerContact,
-		chatConversationRateLimitWindow,
-	)
+				contactID,
+				inbox.ID,
+				"",
+				time.Now(),
+				"",
+				false,
+				map[string]any{},
+				nil,
+				maxChatConversationsPerContact,
+				chatConversationRateLimitWindow,
+				true, /** silent - widget restore path mirrors handleChatInit **/
+			)
 	if err != nil {
 		if envErr, ok := err.(envelope.Error); ok && envErr.ErrorType == envelope.RateLimitError {
 			return "", false, err
