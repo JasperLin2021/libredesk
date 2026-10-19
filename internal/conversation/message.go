@@ -993,25 +993,47 @@ func (m *Manager) isVisitorUpgradeSafe(conversation models.Conversation) bool {
 	return true
 }
 
+// conversationMetaFlag reads a boolean flag out of a conversation's raw meta
+// JSON. It returns false (without error) when the flag is absent, or is not a
+// boolean, so callers can use it as a plain predicate.
+func conversationMetaFlag(meta json.RawMessage, key string) (bool, error) {
+	if len(meta) == 0 {
+		return false, nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(meta, &m); err != nil {
+		return false, err
+	}
+	v, _ := m[key].(bool)
+	return v, nil
+}
+
 // ProcessIncomingLiveChatMessage handles incoming live chat messages.
 // The silent flag suppresses the new-message websocket broadcast so the
 // conversation does not surface in the agent open list while the visitor
 // is still chatting with the bot. Once the visitor has explicitly requested
-// a human agent (ConversationMetaBotHumanRequested meta flag) every new
-// visitor message is broadcast again, so agents still see follow-up
-// questions after they have taken over the conversation.
+// a human agent (ConversationMetaBotHumanRequested meta flag), or the
+// conversation has been assigned to an agent/team, every new visitor message
+// is broadcast again, so agents still see follow-up questions after they have
+// taken over the conversation.
 func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message, silent bool) (models.Message, []models.Message, error) {
 	// Upload message attachments.
 	if err := m.uploadMessageAttachments(&msg); err != nil {
 		return models.Message{}, nil, fmt.Errorf("uploading message attachments: %w", err)
 	}
 
-	// If the conversation already requested a human agent, stop suppressing
-	// the broadcast – the conversation has surfaced and follow-up messages
-	// from the visitor should keep updating the agent side.
+	// Suppression must stop once the conversation has surfaced to the agents.
+	// Two things surface it: the conversation being assigned to an agent/team,
+	// or the visitor having explicitly requested a human agent. Checking the
+	// request marker alone is NOT enough — quickreply deliberately clears that
+	// marker the moment an agent takes over (see quickreply.HandleUserAssigned),
+	// so relying on it alone made the agent stop receiving live updates of the
+	// visitor's messages right after joining, and only see them on refresh.
 	if silent {
-		if convMeta, err := m.GetConversationMeta(msg.ConversationUUID); err == nil {
-			if requested, _ := convMeta[models.ConversationMetaBotHumanRequested].(bool); requested {
+		if conversation, err := m.GetConversation(0, msg.ConversationUUID, ""); err == nil {
+			if conversation.AssignedUserID.Valid || conversation.AssignedTeamID.Valid {
+				silent = false
+			} else if requested, _ := conversationMetaFlag(conversation.Meta, models.ConversationMetaBotHumanRequested); requested {
 				silent = false
 			}
 		}

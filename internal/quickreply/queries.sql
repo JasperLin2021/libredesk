@@ -10,6 +10,7 @@ select
     COALESCE(assigned_reply, '') AS assigned_reply,
     COALESCE(closed_reply, '') AS closed_reply,
     COALESCE(no_reply_timeout_reply, '') AS no_reply_timeout_reply,
+    COALESCE(transfer_restricted_message, '') AS transfer_restricted_message,
     enabled,
     created_at,
     updated_at
@@ -25,19 +26,21 @@ insert into
         welcome_message,
         transfer_keyword,
         queue_reply,
+        transfer_restricted_message,
         assigned_reply,
         closed_reply,
         no_reply_timeout_reply,
         enabled
     )
 values
-    ($1, $2, $3, $4, $5, $6, $7, $8)
+    ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 on conflict (inbox_id) do
 update
 set
     welcome_message = excluded.welcome_message,
     transfer_keyword = excluded.transfer_keyword,
     queue_reply = excluded.queue_reply,
+    transfer_restricted_message = excluded.transfer_restricted_message,
     assigned_reply = excluded.assigned_reply,
     closed_reply = excluded.closed_reply,
     no_reply_timeout_reply = excluded.no_reply_timeout_reply,

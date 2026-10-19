@@ -6,14 +6,19 @@ package quickreply
 import (
 	"database/sql"
 	"embed"
+	"encoding/json"
 	"slices"
 	"strings"
+	"time"
 
+	bhmodels "github.com/abhinavxd/libredesk/internal/business_hours/models"
 	cmodels "github.com/abhinavxd/libredesk/internal/conversation/models"
 	"github.com/abhinavxd/libredesk/internal/dbutil"
 	"github.com/abhinavxd/libredesk/internal/envelope"
+	imodels "github.com/abhinavxd/libredesk/internal/inbox/models"
 	"github.com/abhinavxd/libredesk/internal/quickreply/models"
 	"github.com/jmoiron/sqlx"
+	"github.com/jmoiron/sqlx/types"
 	"github.com/knadh/go-i18n"
 	"github.com/lib/pq"
 	"github.com/zerodha/logf"
@@ -54,17 +59,48 @@ type ConversationService interface {
 	BroadcastNewConversationByUUID(conversationUUID string) error
 }
 
+// InboxService provides read access to the inbox record. It is implemented by
+// the inbox manager and only exposes the handoff configuration lookup needed to
+// decide whether a transfer to a human agent is currently allowed.
+type InboxService interface {
+	// GetDBRecord returns the inbox record from the DB by numeric ID or UUID.
+	GetDBRecord(identifier any) (imodels.Inbox, error)
+}
+
+// BusinessHoursService provides read access to a single business hours record.
+// It is implemented by the business hours manager.
+type BusinessHoursService interface {
+	// Get retrieves business hours by ID.
+	Get(id int) (bhmodels.BusinessHours, error)
+	// IsWithinBusinessHours reports whether `now` falls within the given
+	// business hours schedule, resolved in the supplied time zone.
+	IsWithinBusinessHours(bh bhmodels.BusinessHours, tz string, now time.Time) (bool, error)
+}
+
+// SettingsService provides read access to the app settings, keyed by prefix. It
+// is implemented by the settings manager.
+type SettingsService interface {
+	// GetByPrefix retrieves all settings starting with the given prefix.
+	GetByPrefix(prefix string) (types.JSONText, error)
+}
+
 var (
 	//go:embed queries.sql
 	efs embed.FS
 )
 
 type Manager struct {
-	q    queries
-	db   *sqlx.DB
-	lo   *logf.Logger
-	i18n *i18n.I18n
-	conv ConversationService
+	q             queries
+	db            *sqlx.DB
+	lo            *logf.Logger
+	i18n          *i18n.I18n
+	conv          ConversationService
+	inbox         InboxService
+	businessHours BusinessHoursService
+	settings      SettingsService
+	// now returns the current time. It defaults to time.Now and is overridden
+	// in tests so the handoff time window can be exercised with a fixed clock.
+	now func() time.Time
 }
 
 // Opts contains options for initializing the Manager.
@@ -105,6 +141,7 @@ func New(opts Opts) (*Manager, error) {
 		lo:   opts.Lo,
 		i18n: opts.I18n,
 		conv: opts.Conv,
+		now:  time.Now,
 	}, nil
 }
 
@@ -112,6 +149,27 @@ func New(opts Opts) (*Manager, error) {
 // avoid an import cycle between the quickreply and conversation packages.
 func (m *Manager) SetConversationService(conv ConversationService) {
 	m.conv = conv
+}
+
+// SetInboxService wires the inbox service after construction to avoid an import
+// cycle between the quickreply and inbox packages. It is required for the
+// handoff time window check; without it handoff is unrestricted.
+func (m *Manager) SetInboxService(inbox InboxService) {
+	m.inbox = inbox
+}
+
+// SetBusinessHoursService wires the business hours service after construction.
+// It is required for the handoff time window check; without it handoff is
+// unrestricted.
+func (m *Manager) SetBusinessHoursService(businessHours BusinessHoursService) {
+	m.businessHours = businessHours
+}
+
+// SetSettingsService wires the settings service after construction. It supplies
+// the app time zone used to resolve the handoff time window; without it the
+// window falls back to UTC.
+func (m *Manager) SetSettingsService(settings SettingsService) {
+	m.settings = settings
 }
 
 // GetConfig returns the quick reply config for the given inbox. If no config
@@ -130,9 +188,9 @@ func (m *Manager) GetConfig(inboxID int) (models.InboxQuickReplyConfig, error) {
 }
 
 // UpsertConfig creates or updates the quick reply config for the given inbox.
-func (m *Manager) UpsertConfig(inboxID int, welcomeMessage, transferKeyword, queueReply, assignedReply, closedReply, noReplyTimeoutReply string, enabled bool) (models.InboxQuickReplyConfig, error) {
+func (m *Manager) UpsertConfig(inboxID int, welcomeMessage, transferKeyword, queueReply, transferRestrictedMessage, assignedReply, closedReply, noReplyTimeoutReply string, enabled bool) (models.InboxQuickReplyConfig, error) {
 	var cfg models.InboxQuickReplyConfig
-	if err := m.q.UpsertConfig.Get(&cfg, inboxID, welcomeMessage, transferKeyword, queueReply, assignedReply, closedReply, noReplyTimeoutReply, enabled); err != nil {
+	if err := m.q.UpsertConfig.Get(&cfg, inboxID, welcomeMessage, transferKeyword, queueReply, transferRestrictedMessage, assignedReply, closedReply, noReplyTimeoutReply, enabled); err != nil {
 		if dbutil.IsForeignKeyError(err) {
 			return cfg, envelope.NewError(envelope.InputError, m.i18n.T("validation.notFoundInbox"), nil)
 		}
@@ -777,7 +835,17 @@ func (m *Manager) HandleNoReplyTimeout(conversation cmodels.Conversation) error 
 // and marks the conversation as having requested a human agent. It also
 // surfaces the conversation in the agent open list, because the visitor has
 // now explicitly asked to talk to a human.
+//
+// When the inbox restricts handoff to a time window ("转人工设置"), the transfer
+// only proceeds inside that window. Outside it the configured restriction
+// message is sent and the conversation stays in the bot flow.
 func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg models.InboxQuickReplyConfig) error {
+	// Gate the transfer on the inbox's handoff time window. Outside the allowed
+	// window the visitor gets the restriction message and nothing else happens.
+	if !m.handoffAllowedNow(conversation) {
+		return m.sendRestrictedReply(conversation, cfg)
+	}
+
 	count, err := m.conv.CountOpenUnassignedConversations()
 	if err != nil {
 		return err
@@ -815,6 +883,91 @@ func (m *Manager) handleTransferRequest(conversation cmodels.Conversation, cfg m
 	// queue entry shows up immediately on other waiting widgets too.
 	if err := m.conv.RefreshWaitingQueueInfo(); err != nil {
 		m.lo.Error("error refreshing waiting queue info", "error", err)
+	}
+	return nil
+}
+
+// handoffAllowedNow reports whether the visitor may be transferred to a human
+// agent at the current time, based on the inbox's "转人工设置" (handoff time
+// window) configuration.
+//
+// A NULL or zero `handoff_business_hours_id` means unrestricted, so the
+// existing "always allow" behaviour is preserved. Any failure looking up the
+// inbox, business hours, or settings is treated as "allowed" and logged so
+// that a misconfigured schedule can never silently block visitors from
+// reaching a human agent.
+func (m *Manager) handoffAllowedNow(conversation cmodels.Conversation) bool {
+	if m.inbox == nil || m.businessHours == nil {
+		return true
+	}
+	inbox, err := m.inbox.GetDBRecord(int(conversation.InboxID))
+	if err != nil {
+		m.lo.Error("error fetching inbox for handoff time window check", "inbox_id", conversation.InboxID, "error", err)
+		return true
+	}
+	if !inbox.HandoffBusinessHoursID.Valid || inbox.HandoffBusinessHoursID.Int <= 0 {
+		return true
+	}
+	bh, err := m.businessHours.Get(int(inbox.HandoffBusinessHoursID.Int))
+	if err != nil {
+		m.lo.Error("error fetching business hours for handoff time window check", "business_hours_id", inbox.HandoffBusinessHoursID.Int, "error", err)
+		return true
+	}
+	tz := m.appTimezone()
+	inHours, err := m.businessHours.IsWithinBusinessHours(bh, tz, m.now())
+	if err != nil {
+		m.lo.Error("error evaluating handoff time window", "business_hours_id", inbox.HandoffBusinessHoursID.Int, "tz", tz, "error", err)
+		return true
+	}
+	// `business` only allows handoff during working hours, `off_business` is
+	// the inverse. `NormalizedHandoffHoursMode` defaults unknown values to
+	// `business` so an old / corrupt row is always interpreted the safe way.
+	if inbox.NormalizedHandoffHoursMode() == imodels.HandoffHoursModeOffBusiness {
+		return !inHours
+	}
+	return inHours
+}
+
+// appTimezone returns the app-wide time zone from settings (key
+// `app.timezone`). It falls back to UTC on any failure so the caller can use
+// the result unconditionally.
+func (m *Manager) appTimezone() string {
+	const fallback = "UTC"
+	if m.settings == nil {
+		return fallback
+	}
+	raw, err := m.settings.GetByPrefix("app")
+	if err != nil || len(raw) == 0 {
+		return fallback
+	}
+	settings := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		m.lo.Error("error unmarshalling app settings for time zone", "error", err)
+		return fallback
+	}
+	tz, _ := settings["app.timezone"].(string)
+	if tz == "" {
+		return fallback
+	}
+	return tz
+}
+
+// sendRestrictedReply sends the "transfer restricted" reply when the visitor
+// asks for a human agent outside the inbox's allowed handoff time window. The
+// conversation is intentionally left untouched: no bot_human_requested marker,
+// no queue info, no broadcast. This way the visitor can ask again later in the
+// allowed window and be queued normally.
+func (m *Manager) sendRestrictedReply(conversation cmodels.Conversation, cfg models.InboxQuickReplyConfig) error {
+	reply := strings.TrimSpace(cfg.TransferRestrictedMessage)
+	if reply == "" {
+		// Fall back to a default so the visitor never receives an empty
+		// message. The i18n key is the same one surfaced in the admin form
+		// description so admins see the same string visitors receive.
+		reply = m.i18n.T("quickReply.transferRestricted")
+	}
+	if _, err := m.conv.SendAutoReply(conversation.InboxID, conversation.ContactID, conversation.UUID, reply, nil, true); err != nil {
+		m.lo.Error("error sending quick reply transfer restricted message", "conversation_uuid", conversation.UUID, "error", err)
+		return err
 	}
 	return nil
 }

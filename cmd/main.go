@@ -254,6 +254,15 @@ func main() {
 
 	wsHub.SetConversationStore(conversation)
 	automation.SetConversationStore(conversation)
+
+	// Wire the services the quick reply module needs to decide whether a
+	// transfer to a human agent is allowed right now (inbox "转人工设置" +
+	// business hours + app time zone). Without these, handoff stays
+	// unrestricted, preserving the legacy behaviour.
+	quickReply.SetInboxService(inbox)
+	quickReply.SetBusinessHoursService(businessHours)
+	quickReply.SetSettingsService(settings)
+
 	systemUser, err := user.GetSystemUser()
 	if err != nil {
 		log.Fatalf("error fetching system user: %v", err)

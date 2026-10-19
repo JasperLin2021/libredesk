@@ -73,6 +73,17 @@
               </FormItem>
             </FormField>
 
+            <FormField v-slot="{ componentField }" name="transfer_restricted_message">
+              <FormItem>
+                <FormLabel>{{ $t('admin.quickReply.transferRestrictedMessage') }}</FormLabel>
+                <FormControl>
+                  <Textarea rows="3" v-bind="componentField" />
+                </FormControl>
+                <FormDescription>{{ $t('admin.quickReply.transferRestrictedMessage.description') }}</FormDescription>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+
             <FormField v-slot="{ componentField }" name="assigned_reply">
               <FormItem>
                 <FormLabel>{{ $t('admin.quickReply.assignedReply') }}</FormLabel>
@@ -181,6 +192,7 @@ const formSchema = z.object({
   welcome_message: z.string(),
   transfer_keyword: z.string().min(1, t('globals.messages.empty', { name: t('admin.quickReply.transferKeyword') })),
   queue_reply: z.string(),
+  transfer_restricted_message: z.string(),
   assigned_reply: z.string(),
   closed_reply: z.string(),
   no_reply_timeout_reply: z.string()
@@ -198,6 +210,7 @@ const loadConfig = async (inboxId) => {
     welcome_message: config.value.welcome_message || '',
     transfer_keyword: config.value.transfer_keyword || '我要转人工',
     queue_reply: config.value.queue_reply || '',
+    transfer_restricted_message: config.value.transfer_restricted_message || '',
     assigned_reply: config.value.assigned_reply || '',
     closed_reply: config.value.closed_reply || '',
     no_reply_timeout_reply: config.value.no_reply_timeout_reply || ''
@@ -225,6 +238,7 @@ const saveConfig = async (extra = {}) => {
       welcome_message: form.values.welcome_message,
       transfer_keyword: form.values.transfer_keyword,
       queue_reply: form.values.queue_reply,
+      transfer_restricted_message: form.values.transfer_restricted_message,
       assigned_reply: form.values.assigned_reply,
       closed_reply: form.values.closed_reply,
       no_reply_timeout_reply: form.values.no_reply_timeout_reply,

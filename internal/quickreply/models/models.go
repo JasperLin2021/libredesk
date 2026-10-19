@@ -16,7 +16,11 @@ type InboxQuickReplyConfig struct {
 	AssignedReply       string    `db:"assigned_reply" json:"assigned_reply"`
 	ClosedReply         string    `db:"closed_reply" json:"closed_reply"`
 	NoReplyTimeoutReply string    `db:"no_reply_timeout_reply" json:"no_reply_timeout_reply"`
-	Enabled             bool      `db:"enabled" json:"enabled"`
+	// TransferRestrictedMessage is sent automatically to the visitor when they
+	// ask to be transferred to a human agent outside the time window allowed by
+	// the inbox's "转人工设置" (human handoff) configuration.
+	TransferRestrictedMessage string `db:"transfer_restricted_message" json:"transfer_restricted_message"`
+	Enabled                   bool   `db:"enabled" json:"enabled"`
 	CreatedAt           time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt           time.Time `db:"updated_at" json:"updated_at"`
 }
