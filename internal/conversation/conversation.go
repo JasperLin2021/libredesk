@@ -29,6 +29,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/envelope"
 	"github.com/abhinavxd/libredesk/internal/inbox"
 	imodels "github.com/abhinavxd/libredesk/internal/inbox/models"
+	"github.com/abhinavxd/libredesk/internal/keywordmatch"
 	mmodels "github.com/abhinavxd/libredesk/internal/media/models"
 	notifier "github.com/abhinavxd/libredesk/internal/notification"
 	nmodels "github.com/abhinavxd/libredesk/internal/notification/models"
@@ -111,6 +112,7 @@ type Manager struct {
 	subjectRefFormat           string
 	aiAgent                    AIAgentEngine
 	quickReply                 *quickreply.Manager
+	keywordMatch               *keywordmatch.Manager
 }
 
 // AIAgentEngine is notified when a conversation assigned to an AI assistant may need a response.
@@ -364,6 +366,7 @@ type Opts struct {
 	ContinuityConfig         *ContinuityConfig
 	SubjectRefFormat         string
 	QuickReply               *quickreply.Manager
+	KeywordMatch             *keywordmatch.Manager
 }
 
 // New initializes a new conversation Manager.
@@ -434,6 +437,7 @@ func New(
 		continuityConfig:           continuityConfig,
 		subjectRefFormat:           subjectRefFormat,
 		quickReply:                 opts.QuickReply,
+		keywordMatch:               opts.KeywordMatch,
 	}
 
 	return c, nil

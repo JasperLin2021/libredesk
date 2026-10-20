@@ -3,6 +3,8 @@ import { useNotificationStore } from './stores/notification'
 import { useUsersStore } from './stores/users'
 import { useConnectionStore } from './stores/connection'
 import { WS_EVENT, WS_EPHEMERAL_TYPES } from './constants/websocket'
+import { useEmitter } from './composables/useEmitter'
+import { EMITTER_EVENTS } from './constants/emitterEvents'
 import { playNotificationSound } from '@shared-ui/composables/useNotificationSound'
 
 export class WebSocketClient {
@@ -24,6 +26,7 @@ export class WebSocketClient {
     this.messageQueue = []
     this.maxQueueSize = 50
     this.queueTimeoutMs = 30000
+    this.emitter = useEmitter()
   }
 
   init () {
@@ -126,6 +129,17 @@ export class WebSocketClient {
         [WS_EVENT.NEW_NOTIFICATION]: () => this.notificationStore.addNotification(data.data),
         [WS_EVENT.AGENT_AVAILABILITY_UPDATE]: () =>
           this.usersStore.setAvailability(data.data.agent_id, data.data.availability_status),
+        // Agent-only system alert raised by a keyword match rule. It is never
+        // persisted as a message, it only surfaces as a toast on the agent UI.
+        [WS_EVENT.KEYWORD_MATCH_ALERT]: () => {
+          const payload = data.data || {}
+          const title = payload.rule_name || ''
+          const content = payload.content || payload.matched_text || ''
+          const description = title ? `${title}：${content}` : content
+          if (!description) return
+          this.emitter.emit(EMITTER_EVENTS.SHOW_TOAST, { variant: 'info', description })
+          playNotificationSound()
+        },
       }
 
       const handler = handlers[data.type]

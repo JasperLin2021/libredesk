@@ -98,6 +98,9 @@ const (
 
 	// Knowledge base (客服知识库)
 	PermKnowledgeBaseManage = "knowledge_base:manage"
+
+	// Keyword match rules (关键字匹配)
+	PermKeywordMatchManage = "keyword_match:manage"
 )
 
 var validPermissions = map[string]struct{}{
@@ -147,6 +150,7 @@ var validPermissions = map[string]struct{}{
 	PermContextLinksManage:              {},
 	PermCannedResponsesManage:           {},
 	PermKnowledgeBaseManage:             {},
+	PermKeywordMatchManage:              {},
 }
 
 // PermissionExists returns true if the permission exists else false

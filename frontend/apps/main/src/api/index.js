@@ -458,6 +458,21 @@ const updateQuickReplyQuestion = (id, data) =>
     }
   })
 const deleteQuickReplyQuestion = (id) => http.delete(`/api/v1/quick-reply-questions/${id}`)
+const getKeywordMatchRules = () => http.get('/api/v1/keyword-match-rules')
+const getKeywordMatchRule = (id) => http.get(`/api/v1/keyword-match-rules/${id}`)
+const createKeywordMatchRule = (data) =>
+  http.post('/api/v1/keyword-match-rules', data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const updateKeywordMatchRule = (id, data) =>
+  http.put(`/api/v1/keyword-match-rules/${id}`, data, {
+    headers: {
+      'Content-Type': 'application/json'
+    }
+  })
+const deleteKeywordMatchRule = (id) => http.delete(`/api/v1/keyword-match-rules/${id}`)
 const getCannedResponses = () => http.get('/api/v1/canned-responses')
 const createCannedCategory = (data) =>
   http.post('/api/v1/canned-categories', data, {
@@ -822,6 +837,11 @@ export default {
   createQuickReplyQuestion,
   updateQuickReplyQuestion,
   deleteQuickReplyQuestion,
+  getKeywordMatchRules,
+  getKeywordMatchRule,
+  createKeywordMatchRule,
+  updateKeywordMatchRule,
+  deleteKeywordMatchRule,
   getCannedResponses,
   createCannedCategory,
   updateCannedCategory,

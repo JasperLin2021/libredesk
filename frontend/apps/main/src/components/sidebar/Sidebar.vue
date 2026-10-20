@@ -64,7 +64,8 @@ import {
   BookOpen,
   LibraryBig,
   History,
-  Headset
+  Headset,
+  Regex
 } from 'lucide-vue-next'
 
 const navIconMap = {
@@ -100,7 +101,8 @@ const navIconMap = {
   LibraryBig,
   History,
   Search,
-  Headset
+  Headset,
+  Regex
 }
 import {
   DropdownMenu,

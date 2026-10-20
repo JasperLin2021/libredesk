@@ -355,6 +355,29 @@ CREATE TABLE quick_reply_questions (
 );
 CREATE INDEX index_quick_reply_questions_on_topic_id ON quick_reply_questions (topic_id);
 
+DROP TABLE IF EXISTS keyword_match_rules CASCADE;
+CREATE TABLE keyword_match_rules (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    name TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'visitor',
+    match_type TEXT NOT NULL DEFAULT 'keyword',
+    pattern TEXT NOT NULL,
+    case_sensitive BOOL DEFAULT FALSE NOT NULL,
+    search_first BOOL DEFAULT FALSE NOT NULL,
+    action TEXT NOT NULL DEFAULT 'agent_notify',
+    reply_content TEXT NOT NULL DEFAULT '',
+    enabled BOOL DEFAULT TRUE NOT NULL,
+    sort_order INT DEFAULT 0 NOT NULL,
+    CONSTRAINT constraint_keyword_match_rules_on_name CHECK (length(name) <= 300),
+    CONSTRAINT constraint_keyword_match_rules_on_source CHECK (source IN ('visitor', 'agent')),
+    CONSTRAINT constraint_keyword_match_rules_on_match_type CHECK (match_type IN ('keyword', 'regex')),
+    CONSTRAINT constraint_keyword_match_rules_on_action CHECK (action IN ('agent_notify', 'agent_and_visitor'))
+);
+CREATE INDEX index_keyword_match_rules_on_enabled_and_sort_order
+    ON keyword_match_rules (enabled, sort_order);
+
 DROP TABLE IF EXISTS canned_categories CASCADE;
 CREATE TABLE canned_categories (
     id BIGSERIAL PRIMARY KEY,
@@ -1068,7 +1091,7 @@ VALUES
 	(
 		'Admin',
 		'Role for users who have complete access to everything.',
-		'{webhooks:manage,context_links:manage,activity_logs:manage,custom_attributes:manage,contacts:read_all,contacts:read,contacts:write,contacts:block,contact_notes:read,contact_notes:write,contact_notes:delete,conversations:write,ai:manage,general_settings:manage,notification_settings:manage,oidc:manage,conversations:read_all,conversations:read_unassigned,conversations:read_assigned,conversations:read_team_inbox,conversations:read_team_all,conversations:read,conversations:update_user_assignee,conversations:update_team_assignee,conversations:update_priority,conversations:update_status,conversations:update_tags,messages:read,messages:write,view:manage,shared_views:manage,status:manage,tags:manage,macros:manage,users:manage,teams:manage,automations:manage,inboxes:manage,roles:manage,reports:manage,templates:manage,business_hours:manage,sla:manage,canned_responses:manage,knowledge_base:manage}'
+		'{webhooks:manage,context_links:manage,activity_logs:manage,custom_attributes:manage,contacts:read_all,contacts:read,contacts:write,contacts:block,contact_notes:read,contact_notes:write,contact_notes:delete,conversations:write,ai:manage,general_settings:manage,notification_settings:manage,oidc:manage,conversations:read_all,conversations:read_unassigned,conversations:read_assigned,conversations:read_team_inbox,conversations:read_team_all,conversations:read,conversations:update_user_assignee,conversations:update_team_assignee,conversations:update_priority,conversations:update_status,conversations:update_tags,messages:read,messages:write,view:manage,shared_views:manage,status:manage,tags:manage,macros:manage,users:manage,teams:manage,automations:manage,inboxes:manage,roles:manage,reports:manage,templates:manage,business_hours:manage,sla:manage,canned_responses:manage,knowledge_base:manage,keyword_match:manage}'
 	);
 
 

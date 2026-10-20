@@ -12,6 +12,9 @@ const (
 	MessageTypeTyping                 = "typing"
 	MessageTypeListSubscribeReplace   = "list_subscribe_replace"
 	MessageTypeAgentAvailability      = "agent_availability_update"
+	// MessageTypeKeywordMatchAlert pushes an agent-only system alert triggered by
+	// a keyword match rule. It is never persisted as a message.
+	MessageTypeKeywordMatchAlert = "keyword_match_alert"
 )
 
 // WSMessage represents a WS message.

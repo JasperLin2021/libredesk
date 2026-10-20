@@ -276,6 +276,11 @@ export const historyNavItems = [
         titleKey: 'globals.terms.search',
         href: '/history/search',
         icon: 'Search'
+      },
+      {
+        titleKey: 'history.keywordMatch',
+        href: '/history/keyword-match',
+        icon: 'Regex'
       }
     ]
   },

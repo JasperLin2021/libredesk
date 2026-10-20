@@ -189,6 +189,17 @@ func (m *Manager) broadcastToUsers(userIDs []int, message wsmodels.Message) {
 	})
 }
 
+// BroadcastToAgents pushes an arbitrary websocket event to the given agents;
+// an empty user list broadcasts to every online agent. It implements the
+// keywordmatch.ConversationService interface and is used for agent-only system
+// alerts that are never persisted as messages.
+func (m *Manager) BroadcastToAgents(userIDs []int, eventType string, data map[string]any) {
+	m.broadcastToUsers(userIDs, wsmodels.Message{
+		Type: eventType,
+		Data: data,
+	})
+}
+
 // broadcastToConversationListSubs pushes a message to the conversation's list and open subscribers.
 func (m *Manager) broadcastToConversationListSubs(conversationUUID string, message wsmodels.Message) {
 	clients := m.wsHub.ListSubscribers(conversationUUID)

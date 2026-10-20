@@ -49,6 +49,11 @@ var (
 	MessageMetaTypeBotQuickReply = "bot_quick_reply"
 	MessageMetaTypeQueueInfo     = "queue_info"
 
+	// Message meta type of an automatic reply sent by a keyword match rule.
+	// It also marks bot-generated messages so they never re-trigger the
+	// agent-source keyword match rules.
+	MessageMetaTypeBotKeywordMatch = "bot_keyword_match"
+
 	// Conversation meta key marking that the visitor requested a transfer
 	// to a human agent.
 	ConversationMetaBotHumanRequested = "bot_human_requested"

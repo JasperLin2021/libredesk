@@ -80,6 +80,12 @@ const routes = [
             meta: { titleKey: 'globals.terms.search', hidePageHeader: true }
           },
           {
+            path: 'keyword-match',
+            name: 'history-keyword-match',
+            component: () => import('@main/views/history/HistoryKeywordMatchView.vue'),
+            meta: { titleKey: 'history.keywordMatch', hidePageHeader: true }
+          },
+          {
             path: 'customers',
             name: 'history-customers',
             component: () => import('@main/views/history/HistoryCustomersView.vue'),

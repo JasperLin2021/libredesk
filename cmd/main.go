@@ -43,6 +43,7 @@ import (
 	"github.com/abhinavxd/libredesk/internal/importer"
 	"github.com/abhinavxd/libredesk/internal/inbox"
 	"github.com/abhinavxd/libredesk/internal/media"
+	"github.com/abhinavxd/libredesk/internal/keywordmatch"
 	"github.com/abhinavxd/libredesk/internal/oidc"
 	"github.com/abhinavxd/libredesk/internal/quickreply"
 	"github.com/abhinavxd/libredesk/internal/ratelimit"
@@ -105,6 +106,7 @@ type App struct {
 	sla              *sla.Manager
 	csat             *csat.Manager
 	quickReply       *quickreply.Manager
+	keywordMatch     *keywordmatch.Manager
 	cannedResponse   *cannedresponse.Manager
 	knowledgeBase    *knowledgebase.Manager
 	view             *view.Manager
@@ -224,6 +226,7 @@ func main() {
 		i18n                        = initI18n(fs)
 		csat                        = initCSAT(db, i18n)
 		quickReply                  = initQuickReply(db, i18n)
+	keywordMatch                = initKeywordMatch(db, i18n)
 		cannedResponse              = initCannedResponse(db, i18n)
 		knowledgeBase               = initKnowledgeBase(db, i18n)
 		oidc                        = initOIDC(db, settings, i18n)
@@ -245,7 +248,7 @@ func main() {
 		automation                  = initAutomationEngine(db, i18n)
 		ai                          = initAI(ctx, db, i18n, ssrfControl)
 		sla                         = initSLA(db, team, settings, businessHours, template, user, i18n, notifDispatcher)
-		conversation                = initConversations(i18n, sla, status, priority, wsHub, db, inbox, user, team, media, settings, csat, automation, template, webhook, notifDispatcher, quickReply)
+		conversation                = initConversations(i18n, sla, status, priority, wsHub, db, inbox, user, team, media, settings, csat, automation, template, webhook, notifDispatcher, quickReply, keywordMatch)
 		aiAgent                     = initAIAgent(db, i18n, ai, conversation, media, settings, user, notifier, rdb)
 		autoassigner                = initAutoAssigner(team, user, conversation)
 		rateLimiter                 = initRateLimit(rdb)
@@ -305,6 +308,7 @@ func main() {
 		team:             team,
 		csat:             csat,
 		quickReply:       quickReply,
+		keywordMatch:     keywordMatch,
 		cannedResponse:   cannedResponse,
 		knowledgeBase:    knowledgeBase,
 		status:           status,

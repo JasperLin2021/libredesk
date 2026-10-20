@@ -90,6 +90,14 @@ func initHandlers(g *fastglue.Fastglue, hub *ws.Hub) {
 	// Service history.
 	g.GET("/api/v1/history/conversations", perm(handleGetHistoryConversations, "conversations:read"))
 
+	// Keyword match rules (关键字匹配). Reading is open to every agent so the
+	// page loads; only managing them requires the dedicated permission.
+	g.GET("/api/v1/keyword-match-rules", auth(handleGetKeywordMatchRules))
+	g.GET("/api/v1/keyword-match-rules/{id}", auth(handleGetKeywordMatchRule))
+	g.POST("/api/v1/keyword-match-rules", perm(handleCreateKeywordMatchRule, "keyword_match:manage"))
+	g.PUT("/api/v1/keyword-match-rules/{id}", perm(handleUpdateKeywordMatchRule, "keyword_match:manage"))
+	g.DELETE("/api/v1/keyword-match-rules/{id}", perm(handleDeleteKeywordMatchRule, "keyword_match:manage"))
+
 	// Views.
 	g.GET("/api/v1/views/me", perm(handleGetUserViews, "view:manage"))
 	g.POST("/api/v1/views/me", perm(handleCreateUserView, "view:manage"))

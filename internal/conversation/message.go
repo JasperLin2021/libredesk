@@ -578,6 +578,16 @@ func (m *Manager) QueueReply(media []mmodels.Media, inboxID, senderID, contactID
 	if err := m.InsertMessage(&message, silent); err != nil {
 		return models.Message{}, err
 	}
+
+	// Run keyword match rules (关键字匹配) for agent messages. Automatic bot
+	// replies are skipped so a rule can never trigger itself.
+	if m.keywordMatch != nil && !isBotMessageMeta(metaMap) {
+		if conversation, err := m.GetConversation(0, conversationUUID, ""); err == nil {
+			m.keywordMatch.HandleAgentMessage(inboxID, contactID, conversationUUID, stringutil.HTML2Text(content), conversation.AssignedUserID, conversation.AssignedTeamID)
+		} else {
+			m.lo.Error("error fetching conversation for keyword match", "conversation_uuid", conversationUUID, "error", err)
+		}
+	}
 	return message, nil
 }
 
@@ -894,7 +904,40 @@ func (m *Manager) ProcessIncomingMessage(in models.IncomingMessage) (models.Mess
 		m.lo.Error("error processing incoming message hooks", "conversation_uuid", msg.ConversationUUID, "error", err)
 		return models.Message{}, fmt.Errorf("processing incoming message hooks: %w", err)
 	}
+
+	// Run keyword match rules (关键字匹配) for visitor messages coming in through
+	// email and other non-livechat channels.
+	if m.keywordMatch != nil {
+		if conversation, err := m.GetConversation(conversationID, "", ""); err == nil {
+			m.keywordMatch.HandleVisitorMessage(conversation, matchableContent(msg))
+		} else {
+			m.lo.Error("error fetching conversation for keyword match", "conversation_uuid", msg.ConversationUUID, "error", err)
+		}
+	}
 	return msg, nil
+}
+
+// matchableContent returns the plain-text form of a message used for keyword
+// matching. Messages are stored as HTML, so the stripped text is preferred to
+// keep markup out of the matching.
+func matchableContent(msg models.Message) string {
+	if strings.TrimSpace(msg.TextContent) != "" {
+		return msg.TextContent
+	}
+	return msg.Content
+}
+
+// isBotMessageMeta reports whether the message meta marks an automatic bot
+// reply. Bot replies must never re-trigger the agent-source keyword match
+// rules, otherwise an automatic reply could loop forever.
+func isBotMessageMeta(metaMap map[string]interface{}) bool {
+	if len(metaMap) == 0 {
+		return false
+	}
+	msgType, _ := metaMap["type"].(string)
+	return msgType == models.MessageMetaTypeBotQuickReply ||
+		msgType == models.MessageMetaTypeQueueInfo ||
+		msgType == models.MessageMetaTypeBotKeywordMatch
 }
 
 // resolveSender resolves the sender for an incoming message via plus-addressing.
@@ -1057,14 +1100,28 @@ func (m *Manager) ProcessIncomingLiveChatMessage(msg models.Message, silent bool
 
 	// Run quick reply (automatic reply) matching for visitor messages.
 	var botMessages []models.Message
-	if m.quickReply != nil {
-		if conversation, err := m.GetConversation(0, msg.ConversationUUID, ""); err == nil {
-			botMsgs, err := m.quickReply.HandleIncomingMessage(conversation, msg.Content)
-			if err != nil {
-				m.lo.Error("error processing quick reply match", "conversation_uuid", msg.ConversationUUID, "error", err)
-			}
-			botMessages = append(botMessages, botMsgs...)
+	var conversation models.Conversation
+	if m.quickReply != nil || m.keywordMatch != nil {
+		conv, err := m.GetConversation(0, msg.ConversationUUID, "")
+		if err != nil {
+			m.lo.Error("error fetching conversation for automatic replies", "conversation_uuid", msg.ConversationUUID, "error", err)
+		} else {
+			conversation = conv
 		}
+	}
+	if m.quickReply != nil && conversation.UUID != "" {
+		botMsgs, err := m.quickReply.HandleIncomingMessage(conversation, msg.Content)
+		if err != nil {
+			m.lo.Error("error processing quick reply match", "conversation_uuid", msg.ConversationUUID, "error", err)
+		}
+		botMessages = append(botMessages, botMsgs...)
+	}
+
+	// Run keyword match rules (关键字匹配) for visitor messages. Skipped when the
+	// quick reply bot already replied so the visitor is not spammed twice for a
+	// single message.
+	if m.keywordMatch != nil && conversation.UUID != "" && len(botMessages) == 0 {
+		m.keywordMatch.HandleVisitorMessage(conversation, matchableContent(msg))
 	}
 
 	return msg, botMessages, nil
